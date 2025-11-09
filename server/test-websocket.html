@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Chat Test</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .connected {
+            background: #d4edda;
+            color: #155724;
+        }
+        .disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .input-group {
+            margin: 15px 0;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #555;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        #messages {
+            background: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .message {
+            padding: 8px;
+            margin: 5px 0;
+            border-radius: 4px;
+            background: white;
+            border-left: 3px solid #007bff;
+        }
+        .sent {
+            border-left-color: #28a745;
+        }
+        .received {
+            border-left-color: #007bff;
+        }
+        .system {
+            border-left-color: #ffc107;
+            background: #fff3cd;
+        }
+        .typing {
+            color: #6c757d;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔌 WebSocket Chat Test</h1>
+        
+        <div id="status" class="status disconnected">Disconnected</div>
+        
+        <div class="input-group">
+            <label>Your User ID:</label>
+            <input type="text" id="userId" placeholder="Enter your user ID" />
+        </div>
+        
+        <div class="input-group">
+            <button id="connectBtn" onclick="connect()">Connect</button>
+            <button id="disconnectBtn" onclick="disconnect()" disabled>Disconnect</button>
+        </div>
+        
+        <hr>
+        
+        <div class="input-group">
+            <label>Receiver ID:</label>
+            <input type="text" id="receiverId" placeholder="Enter receiver's user ID" />
+        </div>
+        
+        <div class="input-group">
+            <label>Message:</label>
+            <textarea id="messageText" rows="3" placeholder="Type your message..."></textarea>
+        </div>
+        
+        <div class="input-group">
+            <button id="sendBtn" onclick="sendMessage()" disabled>Send Message</button>
+            <button onclick="getChatHistory()">Get Chat History</button>
+        </div>
+        
+        <div id="messages">
+            <p class="system">Messages will appear here...</p>
+        </div>
+    </div>
+
+    <script>
+        let socket = null;
+        let currentUserId = null;
+
+        function connect() {
+            const userId = document.getElementById('userId').value.trim();
+            if (!userId) {
+                alert('Please enter your user ID');
+                return;
+            }
+
+            currentUserId = userId;
+            
+            // Connect to WebSocket server
+            socket = io('http://localhost:3000', {
+                transports: ['websocket', 'polling']
+            });
+
+            socket.on('connect', () => {
+                console.log('Connected to server');
+                updateStatus(true);
+                socket.emit('setUserId', userId);
+                addMessage('Connected to server', 'system');
+            });
+
+            socket.on('disconnect', () => {
+                console.log('Disconnected from server');
+                updateStatus(false);
+                addMessage('Disconnected from server', 'system');
+            });
+
+            socket.on('receiveMessage', (data) => {
+                console.log('Message received:', data);
+                addMessage(`From ${data.senderId.username}: ${data.text}`, 'received');
+            });
+
+            socket.on('messageSent', (data) => {
+                console.log('Message sent successfully:', data);
+                addMessage(`To ${data.receiverId.username}: ${data.text}`, 'sent');
+                document.getElementById('messageText').value = '';
+            });
+
+            socket.on('messageError', (data) => {
+                console.error('Message error:', data);
+                addMessage(`Error: ${data.error}`, 'system');
+            });
+
+            socket.on('userOnline', (data) => {
+                console.log('User status changed:', data);
+                addMessage(`User ${data.userId} is ${data.isOnline ? 'online' : 'offline'}`, 'system');
+            });
+
+            socket.on('userTyping', (data) => {
+                if (data.isTyping) {
+                    addMessage(`User ${data.userId} is typing...`, 'typing');
+                }
+            });
+
+            socket.on('chatHistory', (messages) => {
+                console.log('Chat history:', messages);
+                addMessage(`Loaded ${messages.length} messages`, 'system');
+                messages.forEach(msg => {
+                    const isSent = msg.senderId._id === currentUserId;
+                    addMessage(`${isSent ? 'You' : msg.senderId.username}: ${msg.text}`, isSent ? 'sent' : 'received');
+                });
+            });
+        }
+
+        function disconnect() {
+            if (socket) {
+                socket.disconnect();
+                socket = null;
+                currentUserId = null;
+            }
+        }
+
+        function sendMessage() {
+            const receiverId = document.getElementById('receiverId').value.trim();
+            const text = document.getElementById('messageText').value.trim();
+
+            if (!receiverId || !text) {
+                alert('Please enter receiver ID and message');
+                return;
+            }
+
+            if (!socket || !socket.connected) {
+                alert('Please connect first');
+                return;
+            }
+
+            socket.emit('sendMessage', {
+                senderId: currentUserId,
+                receiverId: receiverId,
+                text: text
+            });
+        }
+
+        function getChatHistory() {
+            const receiverId = document.getElementById('receiverId').value.trim();
+            
+            if (!receiverId) {
+                alert('Please enter receiver ID');
+                return;
+            }
+
+            if (!socket || !socket.connected) {
+                alert('Please connect first');
+                return;
+            }
+
+            socket.emit('getChatHistory', {
+                userId1: currentUserId,
+                userId2: receiverId,
+                limit: 50,
+                skip: 0
+            });
+        }
+
+        function updateStatus(connected) {
+            const statusDiv = document.getElementById('status');
+            const connectBtn = document.getElementById('connectBtn');
+            const disconnectBtn = document.getElementById('disconnectBtn');
+            const sendBtn = document.getElementById('sendBtn');
+
+            if (connected) {
+                statusDiv.textContent = 'Connected ✓';
+                statusDiv.className = 'status connected';
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                sendBtn.disabled = false;
+            } else {
+                statusDiv.textContent = 'Disconnected ✗';
+                statusDiv.className = 'status disconnected';
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+                sendBtn.disabled = true;
+            }
+        }
+
+        function addMessage(text, type = 'system') {
+            const messagesDiv = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            messageDiv.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        // Allow Enter to send message
+        document.getElementById('messageText').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+    </script>
+</body>
+</html>

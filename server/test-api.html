@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Test Page</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        button { margin: 10px; padding: 8px 16px; cursor: pointer; }
+        pre { background-color: #f4f4f4; padding: 10px; border-radius: 4px; overflow: auto; }
+    </style>
+</head>
+<body>
+    <h1>API Test Page</h1>
+    
+    <div>
+        <button onclick="testEndpoint('/api/contacts/pending-requests')">Test /pending-requests</button>
+        <button onclick="testEndpoint('/api/contacts/getcontacts')">Test /getcontacts</button>
+        <button onclick="testEndpoint('/api/contacts/get-contacts')">Test /get-contacts</button>
+    </div>
+    
+    <div>
+        <h3>Response:</h3>
+        <pre id="response">Response will appear here</pre>
+    </div>
+
+    <script>
+        async function testEndpoint(endpoint) {
+            const responseElement = document.getElementById('response');
+            responseElement.textContent = `Testing ${endpoint}...`;
+            
+            try {
+                const response = await fetch(endpoint, {
+                    headers: {
+                        'Authorization': 'Bearer YOUR_TEST_TOKEN_HERE' // Replace with a valid token
+                    }
+                });
+                
+                const contentType = response.headers.get('content-type');
+                
+                if (contentType && contentType.includes('application/json')) {
+                    const data = await response.json();
+                    responseElement.textContent = JSON.stringify(data, null, 2);
+                } else {
+                    const text = await response.text();
+                    responseElement.textContent = text;
+                }
+                
+                responseElement.textContent = `Status: ${response.status} ${response.statusText}\n\n` + responseElement.textContent;
+            } catch (error) {
+                responseElement.textContent = `Error: ${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html>
