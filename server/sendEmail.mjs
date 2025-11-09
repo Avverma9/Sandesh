@@ -8,7 +8,7 @@ const sendEmail = async (options) => {
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port: process.env.SMTP_PORT,
-      secure: process.env.SMTP_PORT == 465, // true for port 465, false for others
+      // secure: process.env.SMTP_PORT == 465, // true for port 465, false for others
       auth: {
         user: process.env.NODEMAILER_EMAIL,
         pass: process.env.NODEMAILER_PASSWORD,
