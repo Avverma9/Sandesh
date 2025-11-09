@@ -51,6 +51,92 @@ function DeleteMessageModal({ message, onClose, onDelete }) {
   );
 }
 
+function CallModal({ incomingCall, onAccept, onReject, onCancel }) {
+  return createPortal(
+    <>
+      <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm" />
+      <div className="fixed inset-0 z-50 flex items-center justify-center">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-2xl max-w-sm animate-slideUp">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+            Incoming {incomingCall.callType.toUpperCase()} Call
+          </h2>
+          <p className="text-gray-600 dark:text-white/70 mb-6">From: {incomingCall.callerName}</p>
+          <div className="flex gap-4">
+            <button
+              onClick={onAccept}
+              className="flex-1 px-4 py-3 bg-green-500 text-white rounded-lg font-semibold hover:bg-green-600 transition-colors"
+            >
+              Accept
+            </button>
+            <button
+              onClick={onReject}
+              className="flex-1 px-4 py-3 bg-red-500 text-white rounded-lg font-semibold hover:bg-red-600 transition-colors"
+            >
+              Reject
+            </button>
+          </div>
+        </div>
+      </div>
+    </>,
+    document.body
+  );
+}
+
+function VideoCallModal({ stream, remoteStream, callType, onEndCall }) {
+  const localVideoRef = useRef();
+  const remoteVideoRef = useRef();
+
+  useEffect(() => {
+    if (localVideoRef.current && stream) {
+      localVideoRef.current.srcObject = stream;
+    }
+  }, [stream]);
+
+  useEffect(() => {
+    if (remoteVideoRef.current && remoteStream) {
+      remoteVideoRef.current.srcObject = remoteStream;
+    }
+  }, [remoteStream]);
+
+  return createPortal(
+    <>
+      <div className="fixed inset-0 z-50 bg-black backdrop-blur-sm" />
+      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center">
+        <div className="relative w-full h-full flex items-center justify-center">
+          {callType === "video" ? (
+            <>
+              <video
+                ref={remoteVideoRef}
+                autoPlay
+                className="w-full h-full object-cover"
+              />
+              <video
+                ref={localVideoRef}
+                autoPlay
+                muted
+                className="absolute bottom-4 right-4 w-48 h-36 object-cover rounded-lg border-4 border-white shadow-lg"
+              />
+            </>
+          ) : (
+            <div className="flex flex-col items-center justify-center">
+              <div className="w-24 h-24 rounded-full bg-gradient-to-r from-cyan-400 to-blue-500 animate-pulse mb-4" />
+              <p className="text-white text-xl font-semibold">Audio Call in Progress</p>
+            </div>
+          )}
+
+          <button
+            onClick={onEndCall}
+            className="absolute bottom-4 left-4 px-6 py-3 bg-red-500 text-white rounded-full font-semibold hover:bg-red-600 transition-colors shadow-lg"
+          >
+            End Call
+          </button>
+        </div>
+      </div>
+    </>,
+    document.body
+  );
+}
+
 function ChatSettingsModal({ user, onClose }) {
   const [deleteTimer, setDeleteTimer] = useState("off");
   const timerOptions = [
@@ -151,7 +237,7 @@ function ChatSettingsModal({ user, onClose }) {
   );
 }
 
-function MessageBubble({ message, onHold, isDeleting,currentUserId }) {
+function MessageBubble({ message, onHold, isDeleting, currentUserId }) {
   const sId = message?.senderId?._id || message?.senderId;
   const isSender = String(sId || "") === String(currentUserId || "");
   const bubbleClasses = isSender
@@ -228,12 +314,27 @@ export default function Messenger({ onBack }) {
   const [showChatSettings, setShowChatSettings] = useState(false);
   const [deletingMessages, setDeletingMessages] = useState(new Set());
 
+  const [incomingCall, setIncomingCall] = useState(null);
+  const [callActive, setCallActive] = useState(false);
+  const [callType, setCallType] = useState(null);
+  const [localStream, setLocalStream] = useState(null);
+  const [remoteStream, setRemoteStream] = useState(null);
+  const [isCallInitiating, setIsCallInitiating] = useState(false);
+
   const recordingTimerRef = useRef(null);
   const cancelAreaRef = useRef(null);
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
+  const peerConnectionRef = useRef(null);
 
   const activeUserId = activeUser?._id || activeUser?.id || null;
+
+  const RTCConfig = {
+    iceServers: [
+      { urls: ["stun:stun.l.google.com:19302"] },
+      { urls: ["stun:stun1.l.google.com:19302"] },
+    ],
+  };
 
   const messages = useMemo(() => {
     const reduxMessages = activeUserId ? messagesMap[String(activeUserId)]?.messages || [] : [];
@@ -378,6 +479,90 @@ export default function Messenger({ onBack }) {
       setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 60);
     };
 
+    const handleIncomingCall = ({ from, callType, callerName }) => {
+      setIncomingCall({ from, callType, callerName });
+    };
+
+    const handleCallAccepted = async () => {
+      try {
+        const mediaConstraints =
+          callType === "video"
+            ? { audio: true, video: { width: 1280, height: 720 } }
+            : { audio: true, video: false };
+
+        const mediaStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+        setLocalStream(mediaStream);
+
+        const peerConnection = new RTCPeerConnection(RTCConfig);
+
+        mediaStream.getTracks().forEach((track) => {
+          peerConnection.addTrack(track, mediaStream);
+        });
+
+        peerConnection.ontrack = (event) => {
+          setRemoteStream(event.streams[0]);
+        };
+
+        peerConnection.onicecandidate = (event) => {
+          if (event.candidate) {
+            socket.emit("sendIceCandidate", { to: incomingCall.from, candidate: event.candidate });
+          }
+        };
+
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+        socket.emit("sendAnswer", { to: incomingCall.from, answer });
+
+        peerConnectionRef.current = peerConnection;
+      } catch (error) {
+        console.error("Error accepting call:", error);
+      }
+    };
+
+    const handleReceiveOffer = async ({ offer, from }) => {
+      if (!peerConnectionRef.current) {
+        const peerConnection = new RTCPeerConnection(RTCConfig);
+
+        if (localStream) {
+          localStream.getTracks().forEach((track) => {
+            peerConnection.addTrack(track, localStream);
+          });
+        }
+
+        peerConnection.ontrack = (event) => {
+          setRemoteStream(event.streams[0]);
+        };
+
+        peerConnection.onicecandidate = (event) => {
+          if (event.candidate) {
+            socket.emit("sendIceCandidate", { to: from, candidate: event.candidate });
+          }
+        };
+
+        peerConnectionRef.current = peerConnection;
+      }
+
+      await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(offer));
+    };
+
+    const handleReceiveAnswer = async ({ answer }) => {
+      if (peerConnectionRef.current) {
+        await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(answer));
+      }
+    };
+
+    const handleReceiveIceCandidate = ({ candidate }) => {
+      if (peerConnectionRef.current && candidate) {
+        peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+      }
+    };
+
+    const handleCallEnded = () => {
+      setCallActive(false);
+      setIncomingCall(null);
+      cleanupCall();
+    };
+
     socket.on("onlineUsers", handleOnlineUsers);
     socket.on("userOnline", handleUserOnline);
     socket.on("userTyping", handleUserTyping);
@@ -386,6 +571,12 @@ export default function Messenger({ onBack }) {
     socket.on("receiveMessage", handleReceiveMessage);
     socket.on("chatHistory", handleChatHistory);
     socket.on("myChats", handleMyChats);
+    socket.on("incomingCall", handleIncomingCall);
+    socket.on("callAccepted", handleCallAccepted);
+    socket.on("receiveOffer", handleReceiveOffer);
+    socket.on("receiveAnswer", handleReceiveAnswer);
+    socket.on("receiveIceCandidate", handleReceiveIceCandidate);
+    socket.on("callEnded", handleCallEnded);
 
     socket.emit("getMyChats");
 
@@ -398,8 +589,14 @@ export default function Messenger({ onBack }) {
       socket.off("receiveMessage", handleReceiveMessage);
       socket.off("chatHistory", handleChatHistory);
       socket.off("myChats", handleMyChats);
+      socket.off("incomingCall", handleIncomingCall);
+      socket.off("callAccepted", handleCallAccepted);
+      socket.off("receiveOffer", handleReceiveOffer);
+      socket.off("receiveAnswer", handleReceiveAnswer);
+      socket.off("receiveIceCandidate", handleReceiveIceCandidate);
+      socket.off("callEnded", handleCallEnded);
     };
-  }, [currentUserId, activeUserId, dispatch]);
+  }, [currentUserId, activeUserId, dispatch, incomingCall, localStream, callType]);
 
   useEffect(() => {
     if (isRecording) {
@@ -578,7 +775,95 @@ export default function Messenger({ onBack }) {
   };
 
   const handleToggleEmojiPicker = () => setShowEmojiPicker((v) => !v);
+  
   const isActiveUserTyping = activeUserId && typingUsers.has(activeUserId);
+
+  const startCall = async (type) => {
+    if (!activeUserId || isCallInitiating) return;
+    
+    try {
+      setIsCallInitiating(true);
+      setCallType(type);
+
+      const mediaConstraints =
+        type === "video"
+          ? { audio: true, video: { width: 1280, height: 720 } }
+          : { audio: true, video: false };
+
+      const mediaStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+      setLocalStream(mediaStream);
+
+      const peerConnection = new RTCPeerConnection(RTCConfig);
+
+      mediaStream.getTracks().forEach((track) => {
+        peerConnection.addTrack(track, mediaStream);
+      });
+
+      peerConnection.ontrack = (event) => {
+        setRemoteStream(event.streams[0]);
+      };
+
+      peerConnection.onicecandidate = (event) => {
+        if (event.candidate) {
+          socket.emit("sendIceCandidate", { to: activeUserId, candidate: event.candidate });
+        }
+      };
+
+      const offer = await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+
+      socket.emit("initiateCall", {
+        to: activeUserId,
+        from: currentUserId,
+        callType: type,
+        callerName: currentUser?.username || currentUser?.name,
+      });
+
+      socket.emit("sendOffer", { to: activeUserId, offer });
+
+      peerConnectionRef.current = peerConnection;
+      setCallActive(true);
+    } catch (error) {
+      console.error("Error starting call:", error);
+      setCallType(null);
+      setIsCallInitiating(false);
+    }
+  };
+
+  const handleAcceptCall = async () => {
+    setCallActive(true);
+    socket.emit("callAccepted", { to: incomingCall.from });
+    setIncomingCall(null);
+    await handleCallAccepted();
+  };
+
+  const handleRejectCall = () => {
+    socket.emit("callRejected", { to: incomingCall.from });
+    setIncomingCall(null);
+  };
+
+  const cleanupCall = () => {
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.close();
+      peerConnectionRef.current = null;
+    }
+
+    if (localStream) {
+      localStream.getTracks().forEach((track) => track.stop());
+      setLocalStream(null);
+    }
+
+    setRemoteStream(null);
+    setCallType(null);
+    setIsCallInitiating(false);
+  };
+
+  const handleEndCall = () => {
+    if (activeUserId) {
+      socket.emit("endCall", { to: activeUserId });
+    }
+    cleanupCall();
+  };
 
   return (
     <>
@@ -647,12 +932,20 @@ export default function Messenger({ onBack }) {
               </div>
             </div>
             <div className="flex space-x-2 text-gray-800 dark:text-white">
-              <button className="p-2.5 rounded-xl bg-white/10 hover:bg-white/20 backdrop-blur-xl transition-all duration-300 hover:scale-110 border border-black/10 dark:border-white/10">
+              <button 
+                onClick={() => startCall("video")}
+                disabled={!activeUserStatus.isOnline || callActive}
+                className="p-2.5 rounded-xl bg-white/10 hover:bg-white/20 backdrop-blur-xl transition-all duration-300 hover:scale-110 border border-black/10 dark:border-white/10 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M4 8h11a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1V9a1 1 0 011-1z" />
                 </svg>
               </button>
-              <button className="p-2.5 rounded-xl bg-white/10 hover:bg-white/20 backdrop-blur-xl transition-all duration-300 hover:scale-110 border border-black/10 dark:border-white/10">
+              <button 
+                onClick={() => startCall("audio")}
+                disabled={!activeUserStatus.isOnline || callActive}
+                className="p-2.5 rounded-xl bg-white/10 hover:bg-white/20 backdrop-blur-xl transition-all duration-300 hover:scale-110 border border-black/10 dark:border-white/10 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
                 </svg>
@@ -785,6 +1078,24 @@ export default function Messenger({ onBack }) {
 
         {showDeleteMenu && (
           <DeleteMessageModal message={selectedMessage} onClose={handleCloseDeleteMenu} onDelete={handleDeleteMessage} />
+        )}
+
+        {incomingCall && !callActive && (
+          <CallModal
+            incomingCall={incomingCall}
+            onAccept={handleAcceptCall}
+            onReject={handleRejectCall}
+            onCancel={() => setIncomingCall(null)}
+          />
+        )}
+
+        {callActive && (
+          <VideoCallModal
+            stream={localStream}
+            remoteStream={remoteStream}
+            callType={callType}
+            onEndCall={handleEndCall}
+          />
         )}
 
         {showChatSettings && activeUser && (

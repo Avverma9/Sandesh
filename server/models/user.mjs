@@ -47,6 +47,10 @@ const userSchema = new mongoose.Schema(
         ref: "User",
       },
     ],
+    activeSocketId: {
+      type: String,
+      default: null,
+    },
   },
   { timestamps: true }
 );
