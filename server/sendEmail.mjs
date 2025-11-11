@@ -1,40 +1,28 @@
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 import dotenv from "dotenv";
 
 dotenv.config({ quiet: true });
 
 const {
   NODE_ENV,
+  RESEND_API_KEY,
   SMTP_FROM_NAME,
   SMTP_FROM_EMAIL,
 } = process.env;
 
-const transporter = nodemailer.createTransport({
-    host: "smtp.hostinger.com",
-    port: 465,
-    secure: true,
-    auth: {
-        user: process.env.NODEMAILER_EMAIL,
-        pass: process.env.NODEMAILER_PASSWORD,
-    },
-});
-
-const getTransporter = () => {
-  if (!process.env.NODEMAILER_EMAIL || !process.env.NODEMAILER_PASSWORD) {
-    throw new Error(
-      "Missing NODEMAILER_EMAIL or NODEMAILER_PASSWORD env vars. Unable to initialise SMTP transport."
-    );
-  }
-  return transporter;
-};
+const resend = new Resend(RESEND_API_KEY);
 
 const defaultFromName = SMTP_FROM_NAME || "Sandesh";
-const defaultFromEmail = SMTP_FROM_EMAIL || process.env.NODEMAILER_EMAIL;
+const defaultFromEmail = SMTP_FROM_EMAIL || "no-reply@yourdomain.com";
 const defaultFromAddress = `${defaultFromName} <${defaultFromEmail}>`;
 
 const sendEmail = async (options = {}) => {
-  const { email, to, subject, message, html, cc, bcc, attachments, replyTo } = options;
+  const { email, to, subject, message, html, cc, bcc, replyTo } = options;
   const recipient = email || to;
+
+  if (!RESEND_API_KEY) {
+    throw new Error("Missing RESEND_API_KEY environment variable");
+  }
 
   if (!recipient) {
     throw new Error("Email recipient is required");
@@ -48,22 +36,28 @@ const sendEmail = async (options = {}) => {
     throw new Error("Email message or html content is required");
   }
 
-  const mailOptions = {
+  const emailOptions = {
     from: defaultFromAddress,
-  to: recipient,
+    to: recipient,
     subject,
-    ...(message && { text: message }),
     ...(html && { html }),
+    ...(message && !html && { text: message }),
     ...(cc && { cc }),
     ...(bcc && { bcc }),
-    ...(attachments && { attachments }),
-    ...(replyTo && { replyTo }),
+    ...(replyTo && { reply_to: replyTo }),
   };
 
   try {
-    await getTransporter().sendMail(mailOptions);
+    const { data, error } = await resend.emails.send(emailOptions);
+    
+    if (error) {
+      console.error("Resend API error:", error);
+      throw new Error(error.message || "Failed to send email");
+    }
+
+    return data;
   } catch (error) {
-    const context = NODE_ENV === "production" ? "SMTP" : "SMTP (check local env settings)";
+    const context = NODE_ENV === "production" ? "Resend API" : "Resend API (check API key)";
     console.error(`Error sending email via ${context}:`, error);
     throw new Error("There was an error sending the email. Please try again later.");
   }
