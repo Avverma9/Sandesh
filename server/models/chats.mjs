@@ -26,9 +26,20 @@ const chatSchema = new mongoose.Schema(
       name: { type: String },         // original file name
       size: { type: Number },         // in bytes
     },
+    modeSnapshot: {
+      type: String,
+      enum: ['standard', 'temporary'],
+      default: 'standard',
+    },
+    expiresAt: {
+      type: Date,
+      default: null,
+    },
   },
   { timestamps: true }
 );
+
+chatSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 const Chat = mongoose.model('Chat', chatSchema);
 

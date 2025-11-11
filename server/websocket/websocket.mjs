@@ -1,7 +1,13 @@
 import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
+import mongoose from "mongoose";
 import User from "../models/user.mjs";
 import Chat from "../models/chats.mjs";
+import {
+  getChatSettingForUsers,
+  upsertChatSettingRecord,
+  expiryQueryFragment,
+} from "../utils/chatSettings.mjs";
 
 const onlineUsers = new Map(); // userId -> Set(socketIds)
 let ioRef = null;
@@ -23,8 +29,12 @@ function getAllOnlineUserIds() {
 }
 
 async function buildMyChats(userId) {
+  const now = new Date();
   const rawChats = await Chat.find({
-    $or: [{ senderId: userId }, { receiverId: userId }],
+    $and: [
+      { $or: [{ senderId: userId }, { receiverId: userId }] },
+      expiryQueryFragment(now),
+    ],
   })
     .sort({ createdAt: -1 })
     .populate("senderId", "username email images isOnline lastSeen")
@@ -102,6 +112,79 @@ export const setupSocket = (server) => {
     socket.emit("onlineUsers", getAllOnlineUserIds());
     emitMyChatsToUser(io, userId);
 
+    socket.on("getChatSettings", async (data, callback) => {
+      try {
+        const partnerId = data?.partnerId;
+        if (!partnerId) throw new Error("partnerId required");
+
+        const setting = await getChatSettingForUsers(userId, partnerId);
+        const payload = {
+          success: true,
+          data: setting ? setting.toObject() : null,
+        };
+
+        if (typeof callback === "function") {
+          callback(payload);
+        } else {
+          socket.emit("chatSettings", { partnerId, ...payload });
+        }
+      } catch (err) {
+        const errorPayload = { success: false, message: err.message };
+        if (typeof callback === "function") {
+          callback(errorPayload);
+        } else {
+          socket.emit("chatSettingsError", errorPayload);
+        }
+      }
+    });
+
+    socket.on("updateChatSettings", async (data, callback) => {
+      try {
+        const { partnerId, mode, timerSeconds } = data || {};
+        if (!partnerId) throw new Error("partnerId required");
+        if (String(partnerId) === String(userId)) throw new Error("Cannot configure chat with yourself");
+
+        const partnerExists = await User.exists({ _id: partnerId });
+        if (!partnerExists) throw new Error("Partner user not found");
+
+        let setting;
+        try {
+          setting = await upsertChatSettingRecord({
+            initiatorId: userId,
+            partnerId,
+            mode,
+            timerSeconds,
+          });
+        } catch (err) {
+          if (err.statusCode === 400) {
+            const payload = { success: false, message: err.message };
+            if (typeof callback === "function") {
+              callback(payload);
+            } else {
+              socket.emit("chatSettingsError", payload);
+            }
+            return;
+          }
+          throw err;
+        }
+
+        const payload = { success: true, data: setting.toObject() };
+        io.to(String(userId)).emit("chatSettingsUpdated", payload.data);
+        io.to(String(partnerId)).emit("chatSettingsUpdated", payload.data);
+
+        if (typeof callback === "function") {
+          callback(payload);
+        }
+      } catch (err) {
+        const payload = { success: false, message: err.message };
+        if (typeof callback === "function") {
+          callback(payload);
+        } else {
+          socket.emit("chatSettingsError", payload);
+        }
+      }
+    });
+
     socket.on("sendMessage", async (data) => {
       try {
         const { receiverId, text, file, fileType } = data || {};
@@ -110,16 +193,64 @@ export const setupSocket = (server) => {
         const receiver = await User.findById(receiverId).select("_id");
         if (!receiver) throw new Error("Receiver not found");
 
+        const now = new Date();
+        const chatSetting = await getChatSettingForUsers(userId, receiverId);
+        const chatMode = chatSetting?.mode || "standard";
+        const timerSeconds = chatSetting?.timerSeconds
+          ? Number(chatSetting.timerSeconds)
+          : null;
+
+        if (chatMode === "temporary") {
+          const payload = {
+            _id: new mongoose.Types.ObjectId(),
+            senderId: userId,
+            receiverId,
+            text: text || "",
+            file: file || null,
+            modeSnapshot: "temporary",
+            isTemporary: true,
+            createdAt: now,
+            updatedAt: now,
+            expiresInSeconds: timerSeconds || null,
+          };
+
+          const senderSockets = onlineUsers.get(userId) || new Set();
+          for (const sid of senderSockets) {
+            io.to(sid).emit("temporaryMessageSent", payload);
+          }
+
+          const receiverSockets = onlineUsers.get(receiverId) || new Set();
+          for (const sid of receiverSockets) {
+            io.to(sid).emit("temporaryMessageReceived", payload);
+          }
+
+          return;
+        }
+
+        let expiresAt = null;
+        if (timerSeconds && timerSeconds > 0) {
+          expiresAt = new Date(now.getTime() + timerSeconds * 1000);
+        }
+
         const newMessage = new Chat({
           senderId: userId,
           receiverId,
           text: text || "",
           file: file || null,
           fileType: fileType || null,
+          modeSnapshot: chatMode,
+          expiresAt,
         });
         const savedMessage = await newMessage.save();
         await savedMessage.populate("senderId", "username email images isOnline lastSeen");
         await savedMessage.populate("receiverId", "username email images isOnline lastSeen");
+
+        if (chatSetting) {
+          chatSetting.lastMessageAt = now;
+          chatSetting.expiresAt = expiresAt;
+          chatSetting.updatedBy = userId;
+          await chatSetting.save();
+        }
 
         const senderSockets = onlineUsers.get(userId) || new Set();
         for (const sid of senderSockets) {
@@ -162,10 +293,16 @@ export const setupSocket = (server) => {
       try {
         const { otherUserId, limit = 50, skip = 0 } = data || {};
         if (!otherUserId) throw new Error("otherUserId required");
+        const now = new Date();
         const messages = await Chat.find({
-          $or: [
-            { senderId: userId, receiverId: otherUserId },
-            { senderId: otherUserId, receiverId: userId },
+          $and: [
+            {
+              $or: [
+                { senderId: userId, receiverId: otherUserId },
+                { senderId: otherUserId, receiverId: userId },
+              ],
+            },
+            expiryQueryFragment(now),
           ],
         })
           .sort({ createdAt: -1 })

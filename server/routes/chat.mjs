@@ -2,7 +2,8 @@ import express from 'express';
 import mongoose from 'mongoose';
 import Chat from '../models/chats.mjs';
 import { authMiddleware } from '../auth/jwt.mjs';
-import { sendMessage } from '../controllers/messenger.mjs';
+import { sendMessage, upsertChatSetting, getChatSetting } from '../controllers/messenger.mjs';
+import { expiryQueryFragment } from '../utils/chatSettings.mjs';
 import { getIO, emitMyChatsToUser } from '../websocket/websocket.mjs';
 
 const router = express.Router();
@@ -14,8 +15,13 @@ router.get('/my-chats', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
 
+    const now = new Date();
+    const expiryClause = expiryQueryFragment(now);
     const rawChats = await Chat.find({
-      $or: [{ senderId: userId }, { receiverId: userId }],
+      $and: [
+        { $or: [{ senderId: userId }, { receiverId: userId }] },
+        expiryClause,
+      ],
     })
       .sort({ createdAt: -1 })
       .populate('senderId', 'username email images isOnline lastSeen')
@@ -57,10 +63,17 @@ router.get('/history/:userId', authMiddleware, async (req, res) => {
     const limit = parseInt(req.query.limit) || 50;
     const skip = parseInt(req.query.skip) || 0;
 
+    const now = new Date();
+    const expiryClause = expiryQueryFragment(now);
     const rawMessages = await Chat.find({
-      $or: [
-        { senderId: currentUserId, receiverId: otherUserId },
-        { senderId: otherUserId, receiverId: currentUserId },
+      $and: [
+        {
+          $or: [
+            { senderId: currentUserId, receiverId: otherUserId },
+            { senderId: otherUserId, receiverId: currentUserId },
+          ],
+        },
+        expiryClause,
       ],
     })
       .sort({ createdAt: -1 })
@@ -119,6 +132,13 @@ router.delete('/:messageId', authMiddleware, async (req, res) => {
 
     await Chat.findByIdAndDelete(messageId);
 
+    const io = getIO?.();
+    if (io) {
+      const payload = { messageId: String(message._id) };
+      io.to(String(message.senderId)).emit('messageDeleted', payload);
+      io.to(String(message.receiverId)).emit('messageDeleted', payload);
+    }
+
     res.json({ 
       success: true, 
       message: 'Message deleted successfully' 
@@ -142,13 +162,20 @@ router.get('/conversations', authMiddleware, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid user id' });
     }
     const userObjectId = new mongoose.Types.ObjectId(userId);
+    const now = new Date();
+    const expiryClause = expiryQueryFragment(now);
 
     const conversations = await Chat.aggregate([
       {
         $match: {
-          $or: [
-            { senderId: userObjectId },
-            { receiverId: userObjectId },
+          $and: [
+            {
+              $or: [
+                { senderId: userObjectId },
+                { receiverId: userObjectId },
+              ],
+            },
+            expiryClause,
           ],
         },
       },
@@ -208,4 +235,6 @@ router.get('/conversations', authMiddleware, async (req, res) => {
 
 
 router.post('/send-message', authMiddleware, sendMessage)
+router.post('/settings', authMiddleware, upsertChatSetting)
+router.get('/settings/:userId', authMiddleware, getChatSetting)
 export default router;
