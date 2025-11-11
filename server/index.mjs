@@ -8,6 +8,7 @@ import cookieParser from "cookie-parser";
 import connectDB from "./db/cnf.mjs";
 import { authMiddleware } from "./auth/jwt.mjs";
 import { setupSocket } from "./websocket/websocket.mjs";
+import startExpiredMessageScheduler from "./scheduler/expiredMessages.mjs";
 
 dotenv.config({ quiet: true });
 
@@ -58,10 +59,15 @@ const startServer = async () => {
     await connectDB();
 
     const server = http.createServer(app);
-    setupSocket(server); // attach socket.io to the same HTTP server
+    const io = setupSocket(server); // attach socket.io to the same HTTP server
+    const stopScheduler = startExpiredMessageScheduler(io);
 
     server.listen(PORT, () => {
       console.log(`Server running at http://localhost:${PORT}`);
+    });
+
+    server.on("close", () => {
+      stopScheduler?.();
     });
   } catch (error) {
     console.error("Server startup failed:", error);

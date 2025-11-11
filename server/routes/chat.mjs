@@ -134,9 +134,10 @@ router.delete('/:messageId', authMiddleware, async (req, res) => {
 
     const io = getIO?.();
     if (io) {
-      const payload = { messageId: String(message._id) };
+      const payload = { messageId: String(message._id), auto: false };
       io.to(String(message.senderId)).emit('messageDeleted', payload);
       io.to(String(message.receiverId)).emit('messageDeleted', payload);
+      console.log(`🗑️ messageDeleted event emitted for message ${payload.messageId}`);
     }
 
     res.json({ 

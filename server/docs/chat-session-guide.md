@@ -112,13 +112,14 @@ socket.emit("getChatSettings", { partnerId }, (ack) => {
   - Messages are **not** stored server-side; clients should render and drop them when the timer elapses.
 
 ### Deleting Messages
-- When a sender removes a message via the REST delete API, the server now emits `messageDeleted` to both user rooms:
+- Whenever a message is removed (manual delete or automatic timer expiry) the server emits `messageDeleted` to both user rooms:
   ```javascript
-  socket.on("messageDeleted", ({ messageId }) => {
-    removeMessageFromState(String(messageId));
+  socket.on("messageDeleted", ({ messageId, auto, expiresAt }) => {
+    removeMessageFromState(String(messageId), { auto, expiresAt });
   });
   ```
 - Register this listener with your existing Socket.IO setup so both participants instantly drop deleted messages from the UI.
+- `auto` is `true` when the server removed the message because its timer expired; `false` indicates a manual delete.
 
 ## UI Recommendations
 - Provide toggles for:
