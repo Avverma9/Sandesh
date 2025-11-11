@@ -30,11 +30,6 @@ const chatSettingSchema = new Schema(
         message: "Exactly two participants are required",
       },
     },
-    mode: {
-      type: String,
-      enum: ["standard", "temporary"],
-      default: "standard",
-    },
     timerSeconds: {
       type: Number,
       min: 0,

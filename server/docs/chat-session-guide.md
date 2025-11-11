@@ -1,23 +1,21 @@
-# Chat Session Modes Integration Guide
+# Chat Timer Integration Guide
 
-This guide explains how to integrate the new chat session controls (timed deletion and fully temporary chats) in the mobile or web clients.
+Use this guide to wire the timed auto-delete chat feature into mobile or web clients.
 
 ## REST APIs
 
-### Configure Chat Session
+### Configure Chat Timer
 - **Endpoint:** `POST /api/chats/settings`
 - **Auth:** Required (JWT cookie or header)
 - **Body:**
   ```json
   {
     "partnerId": "<other-user-id>",
-    "mode": "standard" | "temporary",
     "timerSeconds": 3600
   }
   ```
-  - `mode` defaults to `standard` when omitted.
-  - `timerSeconds` is optional; provide when using `standard` mode and wanting auto-deletion.
-  - For `temporary` mode, `timerSeconds` (if provided) is treated as the visual countdown for clients and does not persist messages.
+  - Omit `timerSeconds` or set it to `null`/`0` to disable auto-deletion.
+  - Values are rounded to the nearest whole second; negative values are rejected.
 - **Response:**
   ```json
   {
@@ -25,7 +23,6 @@ This guide explains how to integrate the new chat session controls (timed deleti
     "data": {
       "_id": "...",
       "participants": ["<initiator>", "<partner>"],
-      "mode": "temporary",
       "timerSeconds": 600,
       "updatedBy": "<initiator>",
       "createdAt": "2025-11-11T10:00:00.000Z",
@@ -33,9 +30,9 @@ This guide explains how to integrate the new chat session controls (timed deleti
     }
   }
   ```
-  - A Socket.IO event `chatSettingsUpdated` broadcasts automatically to both users with the same payload.
+  - `chatSettingsUpdated` (Socket.IO) fires for both users with the same payload so their UI stays in sync.
 
-### Fetch Current Chat Session
+### Fetch Current Timer
 - **Endpoint:** `GET /api/chats/settings/:userId`
 - **Auth:** Required
 - **Response:**
@@ -45,93 +42,72 @@ This guide explains how to integrate the new chat session controls (timed deleti
     "data": null | {
       "_id": "...",
       "participants": [...],
-      "mode": "standard",
       "timerSeconds": 1800,
       "updatedBy": "..."
     }
   }
   ```
-  - `data = null` means default behaviour (`standard` without timers).
+  - `data = null` means no timer is configured for the pair.
 
 ### Send Message
 - **Endpoint:** `POST /api/chats/send-message`
 - **Auth:** Required
 - **Body keys:** `receiverId`, `text`, optional file upload.
-- **Behaviour:**
-  - In `temporary` mode the response is `200` with `data.isTemporary = true`; nothing is written to MongoDB.
-  - In `standard` mode the message stores `modeSnapshot` and `expiresAt` (when `timerSeconds` > 0).
+- **Behaviour:** Messages persist as usual; when `timerSeconds > 0` the server stores an `expiresAt` timestamp so they auto-delete on schedule.
 
 ## Socket.IO Events
 
-### Update Chat Settings
+### Update Timer
 ```javascript
 socket.emit(
   "updateChatSettings",
-  { partnerId, mode: "temporary", timerSeconds: 120 },
+  { partnerId, timerSeconds: 120 },
   (ack) => {
     if (!ack?.success) console.error(ack?.message);
   }
 );
 ```
-- Emits `chatSettingsUpdated` to both users on success.
-- Structure of `ack.data` matches the REST response.
+- On success, `chatSettingsUpdated` is broadcast to both users with the new timer settings.
 
-### Get Chat Settings
+### Get Timer
 ```javascript
 socket.emit("getChatSettings", { partnerId }, (ack) => {
   if (ack?.success) {
-    console.log("current settings", ack.data);
+    console.log("current timer", ack.data?.timerSeconds);
   }
 });
 ```
-- Alternatively, listen for `chatSettings` events if you skip callbacks.
+- Or listen for the dedicated `chatSettings` event if you prefer push responses.
 
 ### Receiving Updates
-- Listen for global event `chatSettingsUpdated` to sync UI:
+- Keep the UI synchronised:
   ```javascript
   socket.on("chatSettingsUpdated", (settings) => {
-    // settings.mode -> "standard" | "temporary"
     // settings.timerSeconds -> seconds or null
   });
   ```
 
 ### Sending Messages
-- **Standard/Timed Chats:** unchanged (`messageSent`, `receiveMessage`). Each message includes `modeSnapshot` and `expiresAt` for countdown displays.
-- **Temporary Chats:** clients receive `temporaryMessageSent` (sender) and `temporaryMessageReceived` (receiver) events with ephemeral payload:
-  ```json
-  {
-    "_id": "<generated>",
-    "senderId": "...",
-    "receiverId": "...",
-    "text": "...",
-    "modeSnapshot": "temporary",
-    "isTemporary": true,
-    "expiresInSeconds": 120
-  }
-  ```
-  - Messages are **not** stored server-side; clients should render and drop them when the timer elapses.
+- Conversations continue to use `messageSent`, `receiveMessage`, and `newMessage`. Each payload now includes `expiresAt` so you can render a countdown.
 
 ### Deleting Messages
-- Whenever a message is removed (manual delete or automatic timer expiry) the server emits `messageDeleted` to both user rooms:
+- Whenever a message is removed (manual delete or automatic timer expiry) the server emits `messageDeleted`:
   ```javascript
   socket.on("messageDeleted", ({ messageId, auto, expiresAt }) => {
     removeMessageFromState(String(messageId), { auto, expiresAt });
   });
   ```
-- Register this listener with your existing Socket.IO setup so both participants instantly drop deleted messages from the UI.
-- `auto` is `true` when the server removed the message because its timer expired; `false` indicates a manual delete.
+- Register this listener with your Socket.IO client so both participants immediately drop deleted messages.
+- `auto` is `true` when the timer triggered the deletion, otherwise `false`.
 
 ## UI Recommendations
-- Provide toggles for:
-  1. `standard` (default)
-  2. `standard + timer` (ask for minutes/seconds)
-  3. `temporary` (optional countdown purely for UI)
-- After changing settings via REST or socket, update local state only when `success` is true or `chatSettingsUpdated` fires.
-- For timed chats, start a countdown using `expiresAt` (REST responses) or `expiresInSeconds` (temporary mode).
-- When the countdown ends, remove messages locally; the server TTL and cleanup ensure consistency across devices.
+- Offer users a simple toggle or input for the timer (e.g., Off, 5 min, 1 hour).
+- After setting the timer, rely on `chatSettingsUpdated` for confirmation before updating local state.
+- Use the `expiresAt` field on each message to show countdown badges or to purge the message locally when the timer hits zero.
 
 ## Error Handling
-- Expect `chatSettingsError` socket events or `{ success: false, message }` callback responses when validation fails.
-- REST endpoints return HTTP `400` for validation issues, `404` if the partner does not exist, and `200` with `data: null` when no custom setting.
+- Validation errors return HTTP `400` (REST) or `{ success: false, message }` via Socket.IO callbacks/events.
+- Requests with unknown partner IDs respond with `404`.
+- An empty response (`data: null`) simply means no timer is active yet.
 
-With these endpoints and events wired up, the frontend can seamlessly allow users to pick temporary sessions or timed auto-delete chats without additional backend changes.
+With these endpoints and events wired up, the frontend can offer timed chats without keeping any additional temporary mode logic.

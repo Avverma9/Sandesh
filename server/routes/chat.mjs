@@ -4,7 +4,7 @@ import Chat from '../models/chats.mjs';
 import { authMiddleware } from '../auth/jwt.mjs';
 import { sendMessage, upsertChatSetting, getChatSetting } from '../controllers/messenger.mjs';
 import { expiryQueryFragment } from '../utils/chatSettings.mjs';
-import { getIO, emitMyChatsToUser } from '../websocket/websocket.mjs';
+import { getIO } from '../websocket/websocket.mjs';
 
 const router = express.Router();
 

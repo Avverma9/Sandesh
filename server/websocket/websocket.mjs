@@ -1,6 +1,5 @@
 import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
-import mongoose from "mongoose";
 import User from "../models/user.mjs";
 import Chat from "../models/chats.mjs";
 import {
@@ -140,7 +139,7 @@ export const setupSocket = (server) => {
 
     socket.on("updateChatSettings", async (data, callback) => {
       try {
-        const { partnerId, mode, timerSeconds } = data || {};
+        const { partnerId, timerSeconds } = data || {};
         if (!partnerId) throw new Error("partnerId required");
         if (String(partnerId) === String(userId)) throw new Error("Cannot configure chat with yourself");
 
@@ -152,7 +151,6 @@ export const setupSocket = (server) => {
           setting = await upsertChatSettingRecord({
             initiatorId: userId,
             partnerId,
-            mode,
             timerSeconds,
           });
         } catch (err) {
@@ -195,37 +193,9 @@ export const setupSocket = (server) => {
 
         const now = new Date();
         const chatSetting = await getChatSettingForUsers(userId, receiverId);
-        const chatMode = chatSetting?.mode || "standard";
         const timerSeconds = chatSetting?.timerSeconds
           ? Number(chatSetting.timerSeconds)
           : null;
-
-        if (chatMode === "temporary") {
-          const payload = {
-            _id: new mongoose.Types.ObjectId(),
-            senderId: userId,
-            receiverId,
-            text: text || "",
-            file: file || null,
-            modeSnapshot: "temporary",
-            isTemporary: true,
-            createdAt: now,
-            updatedAt: now,
-            expiresInSeconds: timerSeconds || null,
-          };
-
-          const senderSockets = onlineUsers.get(userId) || new Set();
-          for (const sid of senderSockets) {
-            io.to(sid).emit("temporaryMessageSent", payload);
-          }
-
-          const receiverSockets = onlineUsers.get(receiverId) || new Set();
-          for (const sid of receiverSockets) {
-            io.to(sid).emit("temporaryMessageReceived", payload);
-          }
-
-          return;
-        }
 
         let expiresAt = null;
         if (timerSeconds && timerSeconds > 0) {
@@ -238,7 +208,6 @@ export const setupSocket = (server) => {
           text: text || "",
           file: file || null,
           fileType: fileType || null,
-          modeSnapshot: chatMode,
           expiresAt,
         });
         const savedMessage = await newMessage.save();

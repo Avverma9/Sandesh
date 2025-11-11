@@ -29,11 +29,6 @@ export const applyChatSettingToMessages = async (setting) => {
   const [userA, userB] = setting.participants.map((id) => String(id));
   const query = buildParticipantsQuery(userA, userB);
 
-  if (setting.mode === "temporary") {
-    await Chat.deleteMany(query);
-    return;
-  }
-
   if (setting.timerSeconds && setting.timerSeconds > 0) {
     const cutoff = new Date(Date.now() - setting.timerSeconds * 1000);
     await Chat.deleteMany({ ...query, createdAt: { $lt: cutoff } });
@@ -42,7 +37,6 @@ export const applyChatSettingToMessages = async (setting) => {
       [
         {
           $set: {
-            modeSnapshot: setting.mode,
             expiresAt: {
               $cond: [
                 { $ifNull: ["$expiresAt", false] },
@@ -61,12 +55,11 @@ export const applyChatSettingToMessages = async (setting) => {
       ]
     );
   } else {
-    await Chat.updateMany(query, { $unset: { expiresAt: "" }, $set: { modeSnapshot: setting.mode } });
+    await Chat.updateMany(query, { $unset: { expiresAt: "" } });
   }
 };
 
-export const upsertChatSettingRecord = async ({ initiatorId, partnerId, mode, timerSeconds }) => {
-  const resolvedMode = mode === "temporary" ? "temporary" : "standard";
+export const upsertChatSettingRecord = async ({ initiatorId, partnerId, timerSeconds }) => {
   const resolvedTimer = normaliseTimerSeconds(timerSeconds);
   if (Number.isNaN(resolvedTimer)) {
     const error = new Error("timerSeconds must be a number");
@@ -80,12 +73,10 @@ export const upsertChatSettingRecord = async ({ initiatorId, partnerId, mode, ti
   if (!chatSetting) {
     chatSetting = new ChatSetting({
       participants: [initiatorId, partnerId],
-      mode: resolvedMode,
       timerSeconds: resolvedTimer,
       updatedBy: initiatorId,
     });
   } else {
-    chatSetting.mode = resolvedMode;
     chatSetting.timerSeconds = resolvedTimer;
     chatSetting.updatedBy = initiatorId;
   }

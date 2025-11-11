@@ -1,4 +1,3 @@
-import mongoose from 'mongoose';
 import Chat from '../models/chats.mjs';
 import User from '../models/user.mjs';
 import { getIO, emitMyChatsToUser } from '../websocket/websocket.mjs';
@@ -7,7 +6,7 @@ import { upsertChatSettingRecord, getChatSettingForUsers } from '../utils/chatSe
 export const upsertChatSetting = async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { partnerId, mode, timerSeconds } = req.body || {};
+    const { partnerId, timerSeconds } = req.body || {};
 
     if (!partnerId) {
       return res.status(400).json({ success: false, message: 'partnerId is required' });
@@ -27,7 +26,6 @@ export const upsertChatSetting = async (req, res) => {
       chatSetting = await upsertChatSettingRecord({
         initiatorId: userId,
         partnerId,
-        mode,
         timerSeconds,
       });
     } catch (error) {
@@ -93,35 +91,7 @@ export const sendMessage = async (req, res) => {
 
     const now = new Date();
     const chatSetting = await getChatSettingForUsers(senderId, receiverId);
-    const chatMode = chatSetting?.mode || 'standard';
     const timerSeconds = chatSetting?.timerSeconds ? Number(chatSetting.timerSeconds) : null;
-
-    if (chatMode === 'temporary') {
-      const payload = {
-        _id: new mongoose.Types.ObjectId(),
-        senderId,
-        receiverId,
-        text: text || '',
-        file,
-        modeSnapshot: 'temporary',
-        isTemporary: true,
-        createdAt: now,
-        updatedAt: now,
-        expiresInSeconds: timerSeconds || null,
-      };
-
-      const io = getIO?.();
-      if (io) {
-        io.to(String(senderId)).emit('temporaryMessageSent', payload);
-        io.to(String(receiverId)).emit('temporaryMessageReceived', payload);
-      }
-
-      return res.status(200).json({
-        success: true,
-        message: 'Temporary message delivered',
-        data: payload,
-      });
-    }
 
     let expiresAt = null;
     if (timerSeconds && timerSeconds > 0) {
@@ -134,7 +104,6 @@ export const sendMessage = async (req, res) => {
       receiverId,
       text: text || '',
       file,
-      modeSnapshot: chatMode,
       expiresAt,
     }).save();
     await message.populate('senderId', 'username email images isOnline lastSeen');
