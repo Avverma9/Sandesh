@@ -3,6 +3,7 @@ import emailRoute from "../auth/emailOtp.mjs";
 import contactsRoute from "./contacts.mjs";
 import adminRoute from "./admin.mjs";
 import chatRoute from "./chat.mjs";
+import callsRoute from "./calls.mjs";
 import express from "express";
 const router = express.Router();
 
@@ -11,4 +12,5 @@ router.use("/auth", emailRoute);
 router.use("/contacts", contactsRoute);
 router.use("/admin", adminRoute);
 router.use("/chats", chatRoute);
+router.use("/calls", callsRoute);
 export default router;

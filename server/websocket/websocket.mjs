@@ -2,6 +2,7 @@ import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
 import User from "../models/user.mjs";
 import Chat from "../models/chats.mjs";
+import CallHistory from "../models/callHistory.mjs";
 import {
   getChatSettingForUsers,
   upsertChatSettingRecord,
@@ -295,42 +296,187 @@ export const setupSocket = (server) => {
       }
     });
 
-    socket.on("initiateCall", ({ to, from, callType }) => {
+    socket.on("initiateCall", async ({ receiverId, callType }) => {
+      try {
+        if (!receiverId) throw new Error("receiverId required");
+        if (!["audio", "video"].includes(callType)) throw new Error("callType must be 'audio' or 'video'");
+
+        const receiver = await User.findById(receiverId).select("_id username email isOnline");
+        if (!receiver) throw new Error("Receiver not found");
+
+        const callRecord = await new CallHistory({
+          callerId: userId,
+          receiverId,
+          callType,
+          status: "no-answer",
+        }).save();
+
+        await callRecord.populate("callerId", "username email images isOnline");
+        await callRecord.populate("receiverId", "username email images isOnline");
+
+        const receiverSockets = onlineUsers.get(receiverId) || new Set();
+        for (const sid of receiverSockets) {
+          io.to(sid).emit("incomingCall", {
+            callId: String(callRecord._id),
+            callerId: String(userId),
+            callType,
+            caller: callRecord.callerId,
+          });
+        }
+
+        socket.emit("callInitiated", {
+          callId: String(callRecord._id),
+          receiverId: String(receiverId),
+          callType,
+        });
+
+        if (receiverSockets.size === 0) {
+          socket.emit("userNotAvailable", { message: "User is offline" });
+        }
+      } catch (err) {
+        console.error("initiateCall error:", err.message);
+        socket.emit("callError", { error: err.message });
+      }
+    });
+
+    socket.on("acceptCall", async ({ callId }) => {
+      try {
+        if (!callId) throw new Error("callId required");
+
+        const callRecord = await CallHistory.findById(callId);
+        if (!callRecord) throw new Error("Call not found");
+
+        if (String(callRecord.receiverId) !== String(userId)) {
+          throw new Error("Not authorized");
+        }
+
+        if (callRecord.status !== "no-answer") {
+          throw new Error("Call already processed");
+        }
+
+        callRecord.status = "completed";
+        callRecord.startedAt = new Date();
+        await callRecord.save();
+
+        const callerSockets = onlineUsers.get(String(callRecord.callerId)) || new Set();
+        for (const sid of callerSockets) {
+          io.to(sid).emit("callAccepted", {
+            callId: String(callRecord._id),
+            receiverId: String(userId),
+          });
+        }
+
+        socket.emit("callAcceptedConfirm", { callId: String(callRecord._id) });
+      } catch (err) {
+        console.error("acceptCall error:", err.message);
+        socket.emit("callError", { error: err.message });
+      }
+    });
+
+    socket.on("rejectCall", async ({ callId }) => {
+      try {
+        if (!callId) throw new Error("callId required");
+
+        const callRecord = await CallHistory.findById(callId);
+        if (!callRecord) throw new Error("Call not found");
+
+        if (String(callRecord.receiverId) !== String(userId)) {
+          throw new Error("Not authorized");
+        }
+
+        if (callRecord.status !== "no-answer") {
+          throw new Error("Call already processed");
+        }
+
+        callRecord.status = "rejected";
+        callRecord.endedAt = new Date();
+        await callRecord.save();
+
+        const callerSockets = onlineUsers.get(String(callRecord.callerId)) || new Set();
+        for (const sid of callerSockets) {
+          io.to(sid).emit("callRejected", {
+            callId: String(callRecord._id),
+            receiverId: String(userId),
+          });
+        }
+
+        socket.emit("callRejectedConfirm", { callId: String(callRecord._id) });
+      } catch (err) {
+        console.error("rejectCall error:", err.message);
+        socket.emit("callError", { error: err.message });
+      }
+    });
+
+    socket.on("endCall", async ({ callId }) => {
+      try {
+        if (!callId) throw new Error("callId required");
+
+        const callRecord = await CallHistory.findById(callId);
+        if (!callRecord) throw new Error("Call not found");
+
+        const isParticipant =
+          String(callRecord.callerId) === String(userId) ||
+          String(callRecord.receiverId) === String(userId);
+
+        if (!isParticipant) throw new Error("Not authorized");
+
+        if (callRecord.endedAt) {
+          throw new Error("Call already ended");
+        }
+
+        callRecord.endedAt = new Date();
+        if (callRecord.startedAt) {
+          callRecord.duration = Math.floor(
+            (callRecord.endedAt - callRecord.startedAt) / 1000
+          );
+        }
+
+        if (callRecord.status === "no-answer") {
+          const isCaller = String(callRecord.callerId) === String(userId);
+          callRecord.status = isCaller ? "cancelled" : "missed";
+        }
+
+        await callRecord.save();
+
+        const otherUserId =
+          String(callRecord.callerId) === String(userId)
+            ? String(callRecord.receiverId)
+            : String(callRecord.callerId);
+
+        const otherSockets = onlineUsers.get(otherUserId) || new Set();
+        for (const sid of otherSockets) {
+          io.to(sid).emit("callEnded", {
+            callId: String(callRecord._id),
+            endedBy: String(userId),
+          });
+        }
+
+        socket.emit("callEndedConfirm", { callId: String(callRecord._id) });
+      } catch (err) {
+        console.error("endCall error:", err.message);
+        socket.emit("callError", { error: err.message });
+      }
+    });
+
+    socket.on("sendOffer", ({ to, offer, callId }) => {
       const targets = onlineUsers.get(to) || new Set();
       for (const sid of targets) {
-        io.to(sid).emit("incomingCall", { from, callType, socketId: socket.id });
+        io.to(sid).emit("receiveOffer", { offer, from: String(userId), callId });
       }
-      if (targets.size === 0) socket.emit("userNotAvailable", { message: "User is offline" });
     });
 
-    socket.on("sendOffer", ({ to, offer }) => {
+    socket.on("sendAnswer", ({ to, answer, callId }) => {
       const targets = onlineUsers.get(to) || new Set();
-      for (const sid of targets) io.to(sid).emit("receiveOffer", { offer, from: socket.id });
+      for (const sid of targets) {
+        io.to(sid).emit("receiveAnswer", { answer, from: String(userId), callId });
+      }
     });
 
-    socket.on("sendAnswer", ({ to, answer }) => {
+    socket.on("sendIceCandidate", ({ to, candidate, callId }) => {
       const targets = onlineUsers.get(to) || new Set();
-      for (const sid of targets) io.to(sid).emit("receiveAnswer", { answer, from: socket.id });
-    });
-
-    socket.on("sendIceCandidate", ({ to, candidate }) => {
-      const targets = onlineUsers.get(to) || new Set();
-      for (const sid of targets) io.to(sid).emit("receiveIceCandidate", { candidate });
-    });
-
-    socket.on("callAccepted", ({ to }) => {
-      const targets = onlineUsers.get(to) || new Set();
-      for (const sid of targets) io.to(sid).emit("callStarted");
-    });
-
-    socket.on("callRejected", ({ to }) => {
-      const targets = onlineUsers.get(to) || new Set();
-      for (const sid of targets) io.to(sid).emit("callRejected");
-    });
-
-    socket.on("endCall", ({ to }) => {
-      const targets = onlineUsers.get(to) || new Set();
-      for (const sid of targets) io.to(sid).emit("callEnded");
+      for (const sid of targets) {
+        io.to(sid).emit("receiveIceCandidate", { candidate, from: String(userId), callId });
+      }
     });
 
     socket.on("disconnect", async () => {
