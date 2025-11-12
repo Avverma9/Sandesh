@@ -94,10 +94,16 @@ export const setupSocket = (server) => {
 
   io.on("connection", async (socket) => {
     const userId = socket.userId;
+    console.log(`[SOCKET] User connected: ${userId}, socket: ${socket.id}`);
+    
     const wasOnline = onlineUsers.has(userId);
     addSocketForUser(userId, socket.id);
+    
+    console.log(`[SOCKET] Added user ${userId} to onlineUsers Map. Total online: ${onlineUsers.size}`);
+    
     try {
       socket.join(String(userId));
+      socket.join(`user:${userId}`); // Also join user:{id} room for cleaner targeting
     } catch {}
 
     if (!wasOnline) {
@@ -298,11 +304,18 @@ export const setupSocket = (server) => {
 
     socket.on("initiateCall", async ({ receiverId, callType }) => {
       try {
+        console.log(`[CALL] initiateCall from ${userId} to ${receiverId} (type: ${callType})`);
+        
         if (!receiverId) throw new Error("receiverId required");
         if (!["audio", "video"].includes(callType)) throw new Error("callType must be 'audio' or 'video'");
 
         const receiver = await User.findById(receiverId).select("_id username email isOnline");
-        if (!receiver) throw new Error("Receiver not found");
+        if (!receiver) {
+          console.error(`[CALL] Receiver not found: ${receiverId}`);
+          throw new Error("Receiver not found");
+        }
+
+        console.log(`[CALL] Receiver found: ${receiver.username} (${receiver._id})`);
 
         const callRecord = await new CallHistory({
           callerId: userId,
@@ -314,14 +327,28 @@ export const setupSocket = (server) => {
         await callRecord.populate("callerId", "username email images isOnline");
         await callRecord.populate("receiverId", "username email images isOnline");
 
-        const receiverSockets = onlineUsers.get(receiverId) || new Set();
-        for (const sid of receiverSockets) {
-          io.to(sid).emit("incomingCall", {
-            callId: String(callRecord._id),
-            callerId: String(userId),
-            callType,
-            caller: callRecord.callerId,
-          });
+        console.log(`[CALL] CallRecord created: ${callRecord._id}`);
+
+        // Try both string versions of receiverId
+        const receiverIdString = String(receiverId);
+        const receiverIdFromDb = String(receiver._id);
+        
+        let receiverSockets = onlineUsers.get(receiverIdString) || onlineUsers.get(receiverIdFromDb) || new Set();
+        
+        console.log(`[CALL] Online users Map keys:`, Array.from(onlineUsers.keys()));
+        console.log(`[CALL] Looking for receiverId: ${receiverIdString} or ${receiverIdFromDb}`);
+        console.log(`[CALL] Found ${receiverSockets.size} socket(s) for receiver`);
+        
+        if (receiverSockets.size > 0) {
+          for (const sid of receiverSockets) {
+            console.log(`[CALL] Emitting incomingCall to socket: ${sid}`);
+            io.to(sid).emit("incomingCall", {
+              callId: String(callRecord._id),
+              callerId: String(userId),
+              callType,
+              caller: callRecord.callerId,
+            });
+          }
         }
 
         socket.emit("callInitiated", {
@@ -331,6 +358,7 @@ export const setupSocket = (server) => {
         });
 
         if (receiverSockets.size === 0) {
+          console.log(`[CALL] User ${receiverId} is offline or not connected`);
           socket.emit("userNotAvailable", { message: "User is offline" });
         }
       } catch (err) {
