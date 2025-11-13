@@ -1,0 +1,1677 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sandesh Realtime Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" integrity="sha384-hlDHMCM1wRtAdHITa1V6HHpib2H083FKJu83dZxXulS6X0VpaOzF3kzNFBA7Rz1o" crossorigin="anonymous"></script>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --surface: #111c34;
+      --surface-alt: #12203d;
+      --border: rgba(148, 163, 184, 0.2);
+      --text-primary: #f8fafc;
+      --text-secondary: #cbd5f5;
+      --accent: #4f46e5;
+      --accent-soft: rgba(79, 70, 229, 0.15);
+      --danger: #ef4444;
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --muted: #64748b;
+    }
+
+    * {
+      box-sizing: border-box;
+      font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    body {
+      margin: 0;
+      background: radial-gradient(circle at top, #1e293b, #0b1120 55%);
+      color: var(--text-primary);
+      min-height: 100vh;
+      padding: 32px;
+    }
+
+    h1, h2, h3 {
+      margin: 0;
+      font-weight: 600;
+    }
+
+    button {
+      cursor: pointer;
+      border: none;
+      border-radius: 10px;
+      padding: 10px 16px;
+      font-weight: 600;
+      font-size: 14px;
+      background: var(--accent);
+      color: white;
+      transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    button:not(:disabled):hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 20px rgba(79, 70, 229, 0.35);
+    }
+
+    input, textarea, select {
+      background: rgba(15, 23, 42, 0.6);
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      padding: 10px 12px;
+      width: 100%;
+      font-size: 14px;
+      outline: none;
+      transition: border 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    input:focus, textarea:focus, select:focus {
+      border-color: rgba(99, 102, 241, 0.7);
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.25);
+    }
+
+    textarea {
+      min-height: 100px;
+      resize: vertical;
+    }
+
+    .app {
+      max-width: 1240px;
+      margin: 0 auto;
+      display: grid;
+      gap: 24px;
+    }
+
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      padding: 24px;
+      border-radius: 18px;
+      background: linear-gradient(135deg, rgba(79, 70, 229, 0.22), rgba(14, 165, 233, 0.18));
+      border: 1px solid rgba(99, 102, 241, 0.25);
+      backdrop-filter: blur(18px);
+    }
+
+    header h1 {
+      font-size: 28px;
+      letter-spacing: 0.02em;
+    }
+
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      background: rgba(15, 23, 42, 0.5);
+      border: 1px solid rgba(148, 163, 184, 0.3);
+    }
+
+    .status-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--muted);
+      box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.15);
+    }
+
+    .status-chip.online .status-dot {
+      background: var(--success);
+      box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.25);
+    }
+
+    .grid {
+      display: grid;
+      gap: 24px;
+    }
+
+    .grid.two-column {
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    }
+
+    .card {
+      background: rgba(15, 23, 42, 0.72);
+      border-radius: 18px;
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      padding: 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      backdrop-filter: blur(12px);
+    }
+
+    .card h2 {
+      font-size: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .card-section {
+      display: grid;
+      gap: 12px;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .row.triple {
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+
+    .row.single {
+      grid-template-columns: 1fr;
+    }
+
+    label {
+      font-size: 13px;
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+
+    .token-display, .info-box {
+      background: rgba(79, 70, 229, 0.08);
+      border-radius: 14px;
+      padding: 16px;
+      border: 1px solid rgba(99, 102, 241, 0.18);
+      display: grid;
+      gap: 12px;
+    }
+
+    .token-display textarea {
+      height: 110px;
+      font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      background: rgba(14, 165, 233, 0.14);
+      color: #38bdf8;
+    }
+
+    .list {
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 14px;
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .list-header {
+      padding: 14px 18px;
+      background: rgba(12, 20, 38, 0.9);
+      border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--text-secondary);
+      letter-spacing: 0.02em;
+    }
+
+    .list-body {
+      overflow-y: auto;
+      max-height: 280px;
+    }
+
+    .list-item {
+      padding: 12px 18px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+      display: grid;
+      gap: 6px;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+
+    .list-item:last-child {
+      border-bottom: none;
+    }
+
+    .list-item:hover {
+      background: rgba(79, 70, 229, 0.12);
+    }
+
+    .list-item.active {
+      background: rgba(79, 70, 229, 0.18);
+      border-left: 3px solid var(--accent);
+    }
+
+    .list-item strong {
+      font-size: 14px;
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .messages-panel {
+      border-radius: 14px;
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      background: rgba(15, 23, 42, 0.55);
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      min-height: 320px;
+    }
+
+    .messages-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .messages-body {
+      padding: 18px;
+      display: grid;
+      gap: 12px;
+      overflow-y: auto;
+      background: rgba(10, 16, 30, 0.65);
+    }
+
+    .bubble {
+      max-width: 75%;
+      padding: 12px 16px;
+      border-radius: 16px;
+      line-height: 1.45;
+      font-size: 14px;
+      position: relative;
+      display: grid;
+      gap: 6px;
+    }
+
+    .bubble.outgoing {
+      margin-left: auto;
+      background: linear-gradient(135deg, rgba(79, 70, 229, 0.9), rgba(14, 165, 233, 0.72));
+      border-bottom-right-radius: 4px;
+    }
+
+    .bubble.incoming {
+      margin-right: auto;
+      background: rgba(148, 163, 184, 0.18);
+      border-bottom-left-radius: 4px;
+    }
+
+    .bubble .meta {
+      font-size: 11px;
+      color: rgba(226, 232, 240, 0.75);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .message-form {
+      padding: 16px 18px;
+      border-top: 1px solid rgba(148, 163, 184, 0.14);
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .message-form textarea {
+      min-height: 70px;
+    }
+
+    .call-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 320px) minmax(0, 320px) minmax(0, 1fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .call-video {
+      border-radius: 14px;
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      overflow: hidden;
+      background: rgba(7, 11, 22, 0.8);
+      position: relative;
+      aspect-ratio: 9 / 16;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      background: rgba(15, 23, 42, 0.9);
+    }
+
+    .call-actions {
+      display: grid;
+      gap: 12px;
+    }
+
+    .call-actions .row {
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    }
+
+    .call-status {
+      font-size: 13px;
+      color: var(--text-secondary);
+      padding: 12px;
+      border-radius: 10px;
+      background: rgba(79, 70, 229, 0.08);
+      border: 1px solid rgba(99, 102, 241, 0.18);
+    }
+
+    .incoming-banner {
+      position: fixed;
+      inset: auto 24px 24px 24px;
+      max-width: 420px;
+      background: rgba(15, 23, 42, 0.92);
+      border-radius: 16px;
+      border: 1px solid rgba(148, 163, 184, 0.24);
+      padding: 18px;
+      display: none;
+      gap: 16px;
+      box-shadow: 0 24px 60px rgba(14, 21, 37, 0.55);
+      z-index: 20;
+    }
+
+    .incoming-banner.visible {
+      display: grid;
+    }
+
+    .incoming-banner h3 {
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .incoming-banner .actions {
+      display: flex;
+      gap: 12px;
+      justify-content: flex-end;
+    }
+
+    .btn-secondary {
+      background: rgba(148, 163, 184, 0.18);
+      color: var(--text-primary);
+    }
+
+    .btn-danger {
+      background: rgba(239, 68, 68, 0.16);
+      color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.4);
+    }
+
+    .btn-success {
+      background: rgba(34, 197, 94, 0.18);
+      color: #4ade80;
+      border: 1px solid rgba(34, 197, 94, 0.4);
+    }
+
+    pre.log-output {
+      max-height: 320px;
+      overflow-y: auto;
+      background: rgba(7, 11, 22, 0.75);
+      border-radius: 12px;
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      padding: 18px;
+      font-size: 12px;
+      line-height: 1.5;
+      font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .log-output .log-line {
+      display: block;
+    }
+
+    .log-line.info {
+      color: var(--text-secondary);
+    }
+
+    .log-line.warn {
+      color: #fbbf24;
+    }
+
+    .log-line.error {
+      color: #f87171;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .toolbar button {
+      background: rgba(148, 163, 184, 0.12);
+      color: var(--text-primary);
+    }
+
+    .toolbar button.active {
+      background: rgba(79, 70, 229, 0.2);
+      border: 1px solid rgba(79, 70, 229, 0.38);
+    }
+
+    .small-text {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.16);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    @media (max-width: 960px) {
+      body {
+        padding: 18px;
+      }
+
+      header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 16px;
+      }
+
+      .call-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .messages-panel {
+        min-height: 280px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div>
+        <h1>Sandesh Realtime Console</h1>
+        <p style="margin-top:8px;color:var(--text-secondary);font-size:14px;max-width:720px;">
+          Complete tester for authentication, messaging, chat settings, and WebRTC calling. Use one tab per user for easy end-to-end validation.
+        </p>
+      </div>
+      <div class="status-chip" id="socketStatus">
+        <span class="status-dot"></span>
+        <span>Socket disconnected</span>
+      </div>
+    </header>
+
+    <div class="grid two-column">
+      <section class="card" id="authCard">
+        <h2>Authentication</h2>
+        <div class="card-section">
+          <div class="row">
+            <div>
+              <label for="authEmail">Registered email</label>
+              <input id="authEmail" type="email" placeholder="user@example.com">
+            </div>
+            <div class="row single">
+              <button id="sendOtpBtn">Send OTP</button>
+              <div class="small-text">OTP is valid for 5 minutes.</div>
+            </div>
+          </div>
+          <div class="row">
+            <div>
+              <label for="authOtp">Enter OTP</label>
+              <input id="authOtp" type="text" placeholder="1234">
+            </div>
+            <div class="row single">
+              <button id="verifyOtpBtn">Verify OTP</button>
+              <div class="small-text">Verification issues? Request new OTP.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="token-display">
+          <div class="row">
+            <div>
+              <label>Access token</label>
+              <textarea id="accessTokenBox" readonly placeholder="Verify OTP or paste below"></textarea>
+            </div>
+            <div>
+              <label>Refresh token</label>
+              <textarea id="refreshTokenBox" readonly></textarea>
+            </div>
+          </div>
+          <div class="row">
+            <div>
+              <label for="manualTokenInput">Manual token override</label>
+              <textarea id="manualTokenInput" placeholder="Paste JWT access token"></textarea>
+            </div>
+            <div class="row single">
+              <button id="applyManualTokenBtn">Apply token</button>
+              <button id="clearTokensBtn" class="btn-secondary">Clear tokens</button>
+            </div>
+          </div>
+          <div class="info-box" id="tokenInfoBox">
+            <div class="pill">Token payload</div>
+            <div id="tokenInfo" class="small-text">Not authenticated.</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" id="profileCard">
+        <h2>Profile & API</h2>
+        <div class="card-section">
+          <div class="row">
+            <button id="fetchProfileBtn">Load / Refresh profile</button>
+            <button id="healthCheckBtn" class="btn-secondary">Ping /health</button>
+          </div>
+          <div class="info-box">
+            <div class="pill">Current user</div>
+            <pre id="profileBox" class="log-output" style="max-height:200px;">No profile loaded.</pre>
+          </div>
+          <div class="info-box">
+            <div class="pill">Online users</div>
+            <div id="onlineUsers" class="small-text">Connect socket to see active users.</div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <section class="card" id="socketCard">
+      <h2>Socket & Session</h2>
+      <div class="card-section">
+        <div class="row">
+          <div>
+            <label for="socketUrlInput">Socket URL</label>
+            <input id="socketUrlInput" type="text" placeholder="http://localhost:3000">
+          </div>
+          <div class="row single">
+            <button id="connectSocketBtn">Connect socket</button>
+            <button id="disconnectSocketBtn" class="btn-secondary" disabled>Disconnect</button>
+          </div>
+        </div>
+        <div class="toolbar" id="sessionToolbar">
+          <button id="refreshChatsBtn">Reload chats</button>
+          <button id="refreshSettingsBtn">Refresh chat settings</button>
+          <button id="clearLogBtn">Clear logs</button>
+        </div>
+        <div class="info-box">
+          <div class="pill">Session snapshot</div>
+          <div id="sessionInfo" class="small-text">Socket disconnected.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" id="chatCard">
+      <h2>Chat Console</h2>
+      <div class="card-section">
+        <div class="row">
+          <div>
+            <label for="chatUserIdInput">Chat partner userId</label>
+            <input id="chatUserIdInput" type="text" placeholder="Receiver MongoID">
+          </div>
+          <div>
+            <label for="chatTimerInput">Expiry timer (seconds, optional)</label>
+            <input id="chatTimerInput" type="number" min="0" placeholder="0 = no auto-delete">
+          </div>
+          <div class="row single">
+            <button id="applyChatTimerBtn">Save chat timer</button>
+            <div class="small-text">Timer applies both ways for this pair.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row" style="align-items:start;">
+        <div class="list" style="min-height:320px;">
+          <div class="list-header">Recent chats</div>
+          <div class="list-body" id="chatList"></div>
+        </div>
+        <div class="messages-panel">
+          <div class="messages-header">
+            <span id="currentChatTitle">No chat selected</span>
+            <span id="currentChatMeta" class="small-text"></span>
+          </div>
+          <div class="messages-body" id="messagesBody">
+            <div class="small-text">Select a chat or enter a userId.</div>
+          </div>
+          <form id="messageForm" class="message-form">
+            <textarea id="messageInput" placeholder="Type a message..." disabled></textarea>
+            <button type="submit" id="sendMessageBtn" disabled>Send</button>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" id="callCard">
+      <h2>Audio & Video Calls</h2>
+      <div class="call-grid">
+        <div class="call-video">
+          <video id="localVideo" autoplay playsinline muted></video>
+          <span id="localVideoPlaceholder">Local preview</span>
+        </div>
+        <div class="call-video">
+          <video id="remoteVideo" autoplay playsinline></video>
+          <span id="remoteVideoPlaceholder">Remote stream</span>
+        </div>
+        <div class="call-actions">
+          <div class="row">
+            <div>
+              <label for="callUserIdInput">Call userId</label>
+              <input id="callUserIdInput" type="text" placeholder="Target MongoID">
+            </div>
+          </div>
+          <div class="row">
+            <button id="startAudioCallBtn">Start audio call</button>
+            <button id="startVideoCallBtn">Start video call</button>
+          </div>
+          <div class="row">
+            <button id="acceptCallBtn" class="btn-success" disabled>Accept call</button>
+            <button id="rejectCallBtn" class="btn-danger" disabled>Reject call</button>
+            <button id="endCallBtn" class="btn-danger" disabled>End call</button>
+          </div>
+          <div class="call-status" id="callStatus">No active call.</div>
+          <div class="info-box">
+            <div class="pill">Call history fetch (REST)</div>
+            <div class="row">
+              <button id="loadCallHistoryBtn">GET /api/calls/history</button>
+              <button id="loadMissedCallsBtn" class="btn-secondary">GET /api/calls/missed</button>
+              <button id="clearCallHistoryBtn" class="btn-secondary">Clear call panel</button>
+            </div>
+            <pre id="callHistoryBox" class="log-output" style="max-height:160px;">No history loaded.</pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" id="logCard">
+      <h2>Event Log</h2>
+      <pre id="logOutput" class="log-output"></pre>
+    </section>
+  </div>
+
+  <div class="incoming-banner" id="incomingBanner">
+    <div>
+      <h3 id="incomingTitle">Incoming call</h3>
+      <div id="incomingMeta" class="small-text"></div>
+    </div>
+    <div class="actions">
+      <button id="incomingRejectBtn" class="btn-danger">Reject</button>
+      <button id="incomingAcceptBtn" class="btn-success">Accept</button>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      const state = {
+        accessToken: localStorage.getItem("sandesh_accessToken") || "",
+        refreshToken: localStorage.getItem("sandesh_refreshToken") || "",
+        user: null,
+        socket: null,
+        chats: [],
+        chatHistories: {},
+        currentChatUserId: null,
+        currentChatSettings: null,
+        call: {
+          id: null,
+          remoteUserId: null,
+          type: null,
+          isCaller: false,
+          peer: null,
+          localStream: null,
+          remoteStream: null
+        }
+      };
+
+      const els = {
+        sendOtpBtn: document.getElementById("sendOtpBtn"),
+        verifyOtpBtn: document.getElementById("verifyOtpBtn"),
+        authEmail: document.getElementById("authEmail"),
+        authOtp: document.getElementById("authOtp"),
+        accessTokenBox: document.getElementById("accessTokenBox"),
+        refreshTokenBox: document.getElementById("refreshTokenBox"),
+        manualTokenInput: document.getElementById("manualTokenInput"),
+        applyManualTokenBtn: document.getElementById("applyManualTokenBtn"),
+        clearTokensBtn: document.getElementById("clearTokensBtn"),
+        tokenInfo: document.getElementById("tokenInfo"),
+        tokenInfoBox: document.getElementById("tokenInfoBox"),
+        fetchProfileBtn: document.getElementById("fetchProfileBtn"),
+        profileBox: document.getElementById("profileBox"),
+        healthCheckBtn: document.getElementById("healthCheckBtn"),
+        socketStatus: document.getElementById("socketStatus"),
+        socketUrlInput: document.getElementById("socketUrlInput"),
+        connectSocketBtn: document.getElementById("connectSocketBtn"),
+        disconnectSocketBtn: document.getElementById("disconnectSocketBtn"),
+        sessionInfo: document.getElementById("sessionInfo"),
+        logOutput: document.getElementById("logOutput"),
+        clearLogBtn: document.getElementById("clearLogBtn"),
+        onlineUsers: document.getElementById("onlineUsers"),
+        refreshChatsBtn: document.getElementById("refreshChatsBtn"),
+        refreshSettingsBtn: document.getElementById("refreshSettingsBtn"),
+        chatList: document.getElementById("chatList"),
+        chatUserIdInput: document.getElementById("chatUserIdInput"),
+        chatTimerInput: document.getElementById("chatTimerInput"),
+        applyChatTimerBtn: document.getElementById("applyChatTimerBtn"),
+        messagesBody: document.getElementById("messagesBody"),
+        messageForm: document.getElementById("messageForm"),
+        messageInput: document.getElementById("messageInput"),
+        sendMessageBtn: document.getElementById("sendMessageBtn"),
+        currentChatTitle: document.getElementById("currentChatTitle"),
+        currentChatMeta: document.getElementById("currentChatMeta"),
+        callUserIdInput: document.getElementById("callUserIdInput"),
+        startAudioCallBtn: document.getElementById("startAudioCallBtn"),
+        startVideoCallBtn: document.getElementById("startVideoCallBtn"),
+        acceptCallBtn: document.getElementById("acceptCallBtn"),
+        rejectCallBtn: document.getElementById("rejectCallBtn"),
+        endCallBtn: document.getElementById("endCallBtn"),
+        callStatus: document.getElementById("callStatus"),
+        callHistoryBox: document.getElementById("callHistoryBox"),
+        loadCallHistoryBtn: document.getElementById("loadCallHistoryBtn"),
+        loadMissedCallsBtn: document.getElementById("loadMissedCallsBtn"),
+        clearCallHistoryBtn: document.getElementById("clearCallHistoryBtn"),
+        localVideo: document.getElementById("localVideo"),
+        remoteVideo: document.getElementById("remoteVideo"),
+        localVideoPlaceholder: document.getElementById("localVideoPlaceholder"),
+        remoteVideoPlaceholder: document.getElementById("remoteVideoPlaceholder"),
+        incomingBanner: document.getElementById("incomingBanner"),
+        incomingTitle: document.getElementById("incomingTitle"),
+        incomingMeta: document.getElementById("incomingMeta"),
+        incomingAcceptBtn: document.getElementById("incomingAcceptBtn"),
+        incomingRejectBtn: document.getElementById("incomingRejectBtn"),
+        currentCallMeta: document.getElementById("currentChatMeta"),
+        refreshChatSettingsBtn: document.getElementById("refreshSettingsBtn"),
+        refreshChatsButton: document.getElementById("refreshChatsBtn"),
+        sessionToolbar: document.getElementById("sessionToolbar")
+      };
+
+      const API_BASE = "";
+
+      const appendLog = (message, level = "info") => {
+        const time = new Date().toLocaleTimeString();
+        const line = document.createElement("span");
+        line.className = `log-line ${level}`;
+        line.textContent = `[${time}] ${message}`;
+        els.logOutput.appendChild(line);
+        els.logOutput.appendChild(document.createTextNode("\n"));
+        els.logOutput.scrollTop = els.logOutput.scrollHeight;
+      };
+
+      const decodeJwt = (token) => {
+        if (!token) return null;
+        const parts = token.split(".");
+        if (parts.length < 2) return null;
+        try {
+          const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+          const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
+          const json = atob(padded);
+          return JSON.parse(json);
+        } catch (err) {
+          return null;
+        }
+      };
+
+      const updateTokenUI = () => {
+        els.accessTokenBox.value = state.accessToken || "";
+        els.refreshTokenBox.value = state.refreshToken || "";
+        const payload = decodeJwt(state.accessToken);
+        if (payload) {
+          els.tokenInfo.textContent = JSON.stringify(payload, null, 2);
+        } else {
+          els.tokenInfo.textContent = "Not authenticated.";
+        }
+      };
+
+      const setTokens = (accessToken, refreshToken) => {
+        state.accessToken = accessToken || "";
+        state.refreshToken = refreshToken || "";
+        if (state.accessToken) {
+          localStorage.setItem("sandesh_accessToken", state.accessToken);
+        } else {
+          localStorage.removeItem("sandesh_accessToken");
+        }
+        if (state.refreshToken) {
+          localStorage.setItem("sandesh_refreshToken", state.refreshToken);
+        } else {
+          localStorage.removeItem("sandesh_refreshToken");
+        }
+        updateTokenUI();
+        updateSessionInfo();
+      };
+
+      const http = async (path, { method = "GET", body = null, headers = {} } = {}) => {
+        const finalHeaders = { ...headers };
+        let finalBody = body;
+        if (body && !(body instanceof FormData)) {
+          finalHeaders["Content-Type"] = "application/json";
+          finalBody = JSON.stringify(body);
+        }
+        if (state.accessToken) {
+          finalHeaders.Authorization = `Bearer ${state.accessToken}`;
+        }
+        const res = await fetch(`${API_BASE}${path}`, {
+          method,
+          headers: finalHeaders,
+          body: finalBody
+        });
+        let data = null;
+        try {
+          data = await res.json();
+        } catch (err) {
+          // ignore parse errors
+        }
+        if (!res.ok) {
+          const message = data?.message || res.statusText;
+          throw new Error(message);
+        }
+        return data;
+      };
+
+      const updateSocketStatus = (connected) => {
+        const chip = els.socketStatus;
+        chip.classList.toggle("online", !!connected);
+        const dot = chip.querySelector(".status-dot");
+        const text = chip.querySelector("span:last-child");
+        if (connected) {
+          dot.style.background = "var(--success)";
+          text.textContent = "Socket connected";
+        } else {
+          dot.style.background = "var(--muted)";
+          text.textContent = "Socket disconnected";
+        }
+      };
+
+      const updateSessionInfo = () => {
+        const infoParts = [];
+        if (state.user) {
+          infoParts.push(`User: ${state.user.username || state.user.email}`);
+        }
+        if (state.socket && state.socket.connected) {
+          infoParts.push(`Socket ID: ${state.socket.id}`);
+        }
+        if (state.currentChatUserId) {
+          infoParts.push(`Active chat: ${state.currentChatUserId}`);
+        }
+        if (state.call.id) {
+          infoParts.push(`Call ${state.call.type} with ${state.call.remoteUserId}`);
+        }
+        if (infoParts.length === 0) {
+          els.sessionInfo.textContent = "Socket disconnected.";
+        } else {
+          els.sessionInfo.textContent = infoParts.join(" | ");
+        }
+      };
+
+      const renderProfile = (profile) => {
+        if (!profile) {
+          els.profileBox.textContent = "No profile loaded.";
+          return;
+        }
+        els.profileBox.textContent = JSON.stringify(profile, null, 2);
+      };
+
+      const renderOnlineUsers = (users) => {
+        if (!users || users.length === 0) {
+          els.onlineUsers.textContent = "No users online.";
+          return;
+        }
+        const list = users.map((u) => `<span class="badge">${u}</span>`).join(" ");
+        els.onlineUsers.innerHTML = list;
+      };
+
+      const formatDateTime = (dateString) => {
+        if (!dateString) return "";
+        try {
+          return new Date(dateString).toLocaleString();
+        } catch (err) {
+          return dateString;
+        }
+      };
+
+      const getMessagePartnerId = (message) => {
+        const sender = message.senderId?._id || message.senderId;
+        const receiver = message.receiverId?._id || message.receiverId;
+        if (!state.user) return receiver;
+        const myId = state.user._id || state.user.id;
+        return sender === myId ? receiver : sender;
+      };
+
+      const storeMessage = (message) => {
+        const partnerId = getMessagePartnerId(message);
+        if (!partnerId) return;
+        if (!state.chatHistories[partnerId]) {
+          state.chatHistories[partnerId] = [];
+        }
+        const exists = state.chatHistories[partnerId].find((m) => String(m._id) === String(message._id));
+        if (!exists) {
+          state.chatHistories[partnerId].push(message);
+          state.chatHistories[partnerId].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+        }
+        if (partnerId === state.currentChatUserId) {
+          renderMessages(partnerId);
+        }
+      };
+
+      const renderChatList = () => {
+        els.chatList.innerHTML = "";
+        if (!state.chats || state.chats.length === 0) {
+          const empty = document.createElement("div");
+          empty.className = "small-text";
+          empty.style.padding = "18px";
+          empty.textContent = "No chats yet.";
+          els.chatList.appendChild(empty);
+          return;
+        }
+        state.chats.forEach((chat) => {
+          const item = document.createElement("div");
+          item.className = "list-item";
+          const otherUser = chat.isSender ? chat.receiverId : chat.senderId;
+          const otherName = otherUser?.username || otherUser?.email || chat.receiverId || "Unknown";
+          item.dataset.userId = otherUser?._id || otherUser?.id || chat.receiverId || chat.senderId;
+          if (item.dataset.userId === state.currentChatUserId) {
+            item.classList.add("active");
+          }
+          const lastPreview = chat.text ? chat.text.slice(0, 60) : chat.fileType || "Attachment";
+          item.innerHTML = `
+            <strong>${otherName}</strong>
+            <span class="muted">${formatDateTime(chat.createdAt)}</span>
+            <span class="small-text">${lastPreview}</span>
+          `;
+          item.addEventListener("click", () => {
+            selectChat(item.dataset.userId);
+          });
+          els.chatList.appendChild(item);
+        });
+      };
+
+      const renderMessages = (partnerId) => {
+        const messages = state.chatHistories[partnerId] || [];
+        els.messagesBody.innerHTML = "";
+        if (messages.length === 0) {
+          const empty = document.createElement("div");
+          empty.className = "small-text";
+          empty.textContent = "No messages yet.";
+          els.messagesBody.appendChild(empty);
+          return;
+        }
+        const myId = state.user?._id || state.user?.id;
+        messages.forEach((message) => {
+          const bubble = document.createElement("div");
+          const senderId = message.senderId?._id || message.senderId;
+          const isOutgoing = myId && senderId === myId;
+          bubble.className = `bubble ${isOutgoing ? "outgoing" : "incoming"}`;
+          const text = message.text || (message.file ? "[Attachment]" : "");
+          const createdAt = formatDateTime(message.createdAt);
+          bubble.innerHTML = `
+            <div>${text}</div>
+            <div class="meta">
+              <span>${isOutgoing ? "You" : message.senderId?.username || senderId}</span>
+              <span>${createdAt}</span>
+            </div>
+          `;
+          els.messagesBody.appendChild(bubble);
+        });
+        els.messagesBody.scrollTop = els.messagesBody.scrollHeight;
+      };
+
+      const selectChat = async (partnerId) => {
+        state.currentChatUserId = partnerId;
+        els.chatUserIdInput.value = partnerId;
+        updateSessionInfo();
+        Array.from(els.chatList.querySelectorAll(".list-item")).forEach((item) => {
+          if (item.dataset.userId === partnerId) {
+            item.classList.add("active");
+          } else {
+            item.classList.remove("active");
+          }
+        });
+        els.currentChatTitle.textContent = `Chat with ${partnerId}`;
+        els.messageInput.disabled = false;
+        els.sendMessageBtn.disabled = false;
+        renderMessages(partnerId);
+        if (state.socket) {
+          state.socket.emit("getChatHistory", {
+            otherUserId: partnerId,
+            limit: 100,
+            skip: 0
+          });
+          state.socket.emit("getChatSettings", { partnerId }, (res) => {
+            if (res?.success) {
+              state.currentChatSettings = res.data;
+              renderChatSettings();
+            }
+          });
+        }
+      };
+
+      const renderChatSettings = () => {
+        if (!state.currentChatSettings) {
+          els.currentChatMeta.textContent = "No timer configured.";
+          return;
+        }
+        const seconds = state.currentChatSettings.timerSeconds;
+        els.currentChatMeta.textContent = seconds ? `Auto delete in ${seconds} sec` : "No auto delete";
+      };
+
+      const resetCallState = () => {
+        if (state.call.peer) {
+          state.call.peer.ontrack = null;
+          state.call.peer.onicecandidate = null;
+          state.call.peer.close();
+        }
+        if (state.call.localStream) {
+          state.call.localStream.getTracks().forEach((track) => track.stop());
+        }
+        if (state.call.remoteStream) {
+          state.call.remoteStream.getTracks().forEach((track) => track.stop());
+        }
+        state.call = {
+          id: null,
+          remoteUserId: null,
+          type: null,
+          isCaller: false,
+          peer: null,
+          localStream: null,
+          remoteStream: null
+        };
+        els.localVideo.srcObject = null;
+        els.remoteVideo.srcObject = null;
+        els.localVideoPlaceholder.style.display = "flex";
+        els.remoteVideoPlaceholder.style.display = "flex";
+        els.acceptCallBtn.disabled = true;
+        els.rejectCallBtn.disabled = true;
+        els.endCallBtn.disabled = true;
+        hideIncomingBanner();
+        els.callStatus.textContent = "No active call.";
+        updateSessionInfo();
+      };
+
+      const setCallStatus = (text) => {
+        els.callStatus.textContent = text;
+        appendLog(`[CALL] ${text}`);
+      };
+
+      const showIncomingBanner = (caller, callType, callId) => {
+        els.incomingBanner.classList.add("visible");
+        const name = caller?.username || caller?.email || caller?._id || caller || "Unknown";
+        els.incomingTitle.textContent = `Incoming ${callType} call`;
+        els.incomingMeta.textContent = `From ${name} | callId ${callId}`;
+      };
+
+      const hideIncomingBanner = () => {
+        els.incomingBanner.classList.remove("visible");
+      };
+
+      const ensureSocket = () => {
+        if (!state.socket || !state.socket.connected) {
+          throw new Error("Socket is not connected");
+        }
+      };
+
+      const getSocketUrl = () => {
+        const value = els.socketUrlInput.value.trim();
+        if (value) return value;
+        return window.location.origin;
+      };
+
+      const connectSocket = () => {
+        if (!state.accessToken) {
+          appendLog("Access token required for socket connection", "warn");
+          alert("Set access token first");
+          return;
+        }
+        if (state.socket) {
+          state.socket.disconnect();
+        }
+        const url = getSocketUrl();
+        appendLog(`Connecting socket to ${url} ...`);
+        const socket = io(url, {
+          transports: ["websocket", "polling"],
+          auth: {
+            token: `Bearer ${state.accessToken}`
+          }
+        });
+        state.socket = socket;
+        registerSocketHandlers(socket);
+      };
+
+      const disconnectSocket = () => {
+        if (state.socket) {
+          state.socket.disconnect();
+          state.socket = null;
+        }
+        updateSocketStatus(false);
+        els.connectSocketBtn.disabled = false;
+        els.disconnectSocketBtn.disabled = true;
+        updateSessionInfo();
+      };
+
+      const registerSocketHandlers = (socket) => {
+        socket.on("connect", () => {
+          updateSocketStatus(true);
+          els.connectSocketBtn.disabled = true;
+          els.disconnectSocketBtn.disabled = false;
+          appendLog(`Socket connected (${socket.id})`);
+          updateSessionInfo();
+        });
+
+        socket.on("disconnect", (reason) => {
+          appendLog(`Socket disconnected: ${reason}`, "warn");
+          updateSocketStatus(false);
+          els.connectSocketBtn.disabled = false;
+          els.disconnectSocketBtn.disabled = true;
+          updateSessionInfo();
+          resetCallState();
+        });
+
+        socket.on("connect_error", (err) => {
+          appendLog(`Socket error: ${err?.message || err}`, "error");
+          alert(`Socket error: ${err?.message || err}`);
+        });
+
+        socket.on("onlineUsers", (users) => {
+          renderOnlineUsers(users);
+        });
+
+        socket.on("myChats", (chats) => {
+          state.chats = Array.isArray(chats) ? chats : [];
+          renderChatList();
+        });
+
+        socket.on("chatSettingsUpdated", (settings) => {
+          state.currentChatSettings = settings;
+          renderChatSettings();
+          appendLog("Chat settings updated");
+        });
+
+        socket.on("receiveMessage", (message) => {
+          appendLog(`Incoming message from ${message.senderId?.username || message.senderId}`);
+          storeMessage(message);
+        });
+
+        socket.on("messageSent", (message) => {
+          appendLog(`Message delivered to ${message.receiverId?.username || message.receiverId}`);
+          storeMessage(message);
+        });
+
+        socket.on("chatHistory", (messages) => {
+          const partnerId = state.currentChatUserId;
+          if (!partnerId) return;
+          state.chatHistories[partnerId] = Array.isArray(messages) ? messages : [];
+          renderMessages(partnerId);
+        });
+
+        socket.on("messageError", (payload) => {
+          appendLog(`Message error: ${payload?.error}`, "error");
+          alert(`Message error: ${payload?.error}`);
+        });
+
+        socket.on("callInitiated", ({ callId, receiverId, callType }) => {
+          if (!state.call.id) {
+            state.call.id = callId;
+          }
+          setCallStatus(`Ringing ${receiverId} (${callType})`);
+        });
+
+        socket.on("incomingCall", ({ callId, callerId, callType, caller }) => {
+          appendLog(`Incoming ${callType} call from ${callerId}`);
+          state.call.id = callId;
+          state.call.remoteUserId = callerId;
+          state.call.type = callType;
+          state.call.isCaller = false;
+          showIncomingBanner(caller, callType, callId);
+          els.acceptCallBtn.disabled = false;
+          els.rejectCallBtn.disabled = false;
+          setCallStatus(`Incoming ${callType} call from ${caller?.username || callerId}`);
+        });
+
+        socket.on("callAccepted", ({ callId, receiverId, callType, callerId }) => {
+          appendLog(`Call accepted by ${receiverId}`);
+          if (!state.call.id) state.call.id = callId;
+          if (!state.call.remoteUserId) state.call.remoteUserId = receiverId;
+          if (!state.call.type) state.call.type = callType;
+          state.call.isCaller = true;
+          els.endCallBtn.disabled = false;
+          setCallStatus(`In call with ${receiverId}`);
+          createPeerConnection(receiverId);
+          createOffer(callId, receiverId);
+        });
+
+        socket.on("callAcceptedConfirm", ({ callId, callType }) => {
+          appendLog("Call accepted confirmed");
+          if (!state.call.id) state.call.id = callId;
+          if (!state.call.type) state.call.type = callType;
+          els.endCallBtn.disabled = false;
+          setCallStatus("Connecting call...");
+          createPeerConnection(state.call.remoteUserId || state.call.remoteUserId);
+        });
+
+        socket.on("callRejected", ({ callId, receiverId }) => {
+          appendLog(`Call rejected by ${receiverId}`, "warn");
+          alert("Call rejected");
+          resetCallState();
+        });
+
+        socket.on("callRejectedConfirm", () => {
+          appendLog("Rejected call confirmed");
+          resetCallState();
+        });
+
+        socket.on("callEnded", ({ callId, endedBy }) => {
+          appendLog(`Call ended by ${endedBy}`);
+          resetCallState();
+        });
+
+        socket.on("callEndedConfirm", () => {
+          appendLog("Call end acknowledged");
+          resetCallState();
+        });
+
+        socket.on("userNotAvailable", ({ message }) => {
+          appendLog(`User not available: ${message}`, "warn");
+          alert(message || "User not available");
+        });
+
+        socket.on("callError", ({ error }) => {
+          appendLog(`Call error: ${error}`, "error");
+          alert(`Call error: ${error}`);
+          resetCallState();
+        });
+
+        socket.on("receiveOffer", async ({ offer, from, callId, callType }) => {
+          appendLog(`Received offer from ${from}`);
+          if (!state.call.peer) {
+            state.call.remoteUserId = from;
+            state.call.id = callId;
+            state.call.type = callType || state.call.type;
+            await createPeerConnection(from, { ensureLocal: true });
+          }
+          await state.call.peer.setRemoteDescription(new RTCSessionDescription(offer));
+          const answer = await state.call.peer.createAnswer();
+          await state.call.peer.setLocalDescription(answer);
+          state.socket.emit("sendAnswer", { to: from, answer, callId });
+        });
+
+        socket.on("receiveAnswer", async ({ answer, from }) => {
+          appendLog(`Received answer from ${from}`);
+          if (!state.call.peer) return;
+          await state.call.peer.setRemoteDescription(new RTCSessionDescription(answer));
+        });
+
+        socket.on("receiveIceCandidate", async ({ candidate, from }) => {
+          if (!state.call.peer) return;
+          try {
+            await state.call.peer.addIceCandidate(new RTCIceCandidate(candidate));
+            appendLog(`Added ICE candidate from ${from}`);
+          } catch (err) {
+            appendLog(`ICE candidate error: ${err.message}`, "error");
+          }
+        });
+      };
+
+      const requestLocalStream = async (callType) => {
+        try {
+          const constraints = {
+            audio: true,
+            video: callType === "video"
+          };
+          const stream = await navigator.mediaDevices.getUserMedia(constraints);
+          state.call.localStream = stream;
+          els.localVideo.srcObject = stream;
+          els.localVideoPlaceholder.style.display = "none";
+          return stream;
+        } catch (err) {
+          appendLog(`Media error: ${err.message}`, "error");
+          alert(`Media error: ${err.message}`);
+          throw err;
+        }
+      };
+
+      const createPeerConnection = async (remoteUserId, options = {}) => {
+        if (state.call.peer) return state.call.peer;
+        const peer = new RTCPeerConnection({
+          iceServers: [
+            { urls: "stun:stun.l.google.com:19302" },
+            { urls: "stun:stun1.l.google.com:19302" }
+          ]
+        });
+        state.call.peer = peer;
+        peer.ontrack = (event) => {
+          if (!state.call.remoteStream) {
+            state.call.remoteStream = new MediaStream();
+          }
+          state.call.remoteStream = event.streams[0];
+          els.remoteVideo.srcObject = state.call.remoteStream;
+          els.remoteVideoPlaceholder.style.display = "none";
+        };
+        peer.onicecandidate = (event) => {
+          if (event.candidate && state.socket) {
+            state.socket.emit("sendIceCandidate", {
+              to: remoteUserId,
+              candidate: event.candidate,
+              callId: state.call.id
+            });
+          }
+        };
+        if (!state.call.localStream || options.ensureLocal) {
+          await requestLocalStream(state.call.type || "audio");
+        }
+        if (state.call.localStream) {
+          state.call.localStream.getTracks().forEach((track) => {
+            peer.addTrack(track, state.call.localStream);
+          });
+        }
+        return peer;
+      };
+
+      const createOffer = async (callId, receiverId) => {
+        try {
+          await requestLocalStream(state.call.type || "audio");
+          await createPeerConnection(receiverId);
+          const offer = await state.call.peer.createOffer();
+          await state.call.peer.setLocalDescription(offer);
+          state.socket.emit("sendOffer", {
+            to: receiverId,
+            offer,
+            callId
+          });
+          setCallStatus("Offer sent. Waiting for answer...");
+        } catch (err) {
+          appendLog(`Offer error: ${err.message}`, "error");
+          alert(`Offer error: ${err.message}`);
+        }
+      };
+
+      const acceptIncomingCall = async () => {
+        try {
+          ensureSocket();
+          if (!state.call.id) {
+            alert("No incoming call");
+            return;
+          }
+          await requestLocalStream(state.call.type || "audio");
+          await createPeerConnection(state.call.remoteUserId, { ensureLocal: true });
+          state.socket.emit("acceptCall", { callId: state.call.id });
+          els.acceptCallBtn.disabled = true;
+          els.rejectCallBtn.disabled = true;
+          hideIncomingBanner();
+          setCallStatus("Call accepted. Waiting for offer...");
+        } catch (err) {
+          appendLog(`Accept error: ${err.message}`, "error");
+        }
+      };
+
+      const rejectIncomingCall = () => {
+        if (!state.call.id) return;
+        ensureSocket();
+        state.socket.emit("rejectCall", { callId: state.call.id });
+        resetCallState();
+      };
+
+      const endCall = () => {
+        if (!state.call.id) return;
+        ensureSocket();
+        state.socket.emit("endCall", { callId: state.call.id });
+        resetCallState();
+      };
+
+      const initEventHandlers = () => {
+        els.sendOtpBtn.addEventListener("click", async () => {
+          try {
+            const email = els.authEmail.value.trim();
+            if (!email) {
+              alert("Enter registered email");
+              return;
+            }
+            await http("/api/auth/send-otp", {
+              method: "POST",
+              body: { email }
+            });
+            appendLog("OTP sent successfully");
+            alert("OTP sent to email");
+          } catch (err) {
+            appendLog(`OTP send failed: ${err.message}`, "error");
+            alert(err.message);
+          }
+        });
+
+        els.verifyOtpBtn.addEventListener("click", async () => {
+          try {
+            const email = els.authEmail.value.trim();
+            const otp = els.authOtp.value.trim();
+            if (!email || !otp) {
+              alert("Enter email and OTP");
+              return;
+            }
+            const res = await http("/api/auth/verify-otp", {
+              method: "POST",
+              body: { email, otp }
+            });
+            setTokens(res.accessToken, res.refreshToken);
+            state.user = res.user;
+            renderProfile(res.user);
+            appendLog("OTP verified, tokens stored");
+          } catch (err) {
+            appendLog(`OTP verify failed: ${err.message}`, "error");
+            alert(err.message);
+          }
+        });
+
+        els.applyManualTokenBtn.addEventListener("click", () => {
+          const token = els.manualTokenInput.value.trim();
+          if (!token) {
+            alert("Paste a token first");
+            return;
+          }
+          setTokens(token, state.refreshToken);
+          appendLog("Manual access token applied");
+        });
+
+        els.clearTokensBtn.addEventListener("click", () => {
+          setTokens("", "");
+          state.user = null;
+          renderProfile(null);
+          appendLog("Tokens cleared");
+        });
+
+        els.fetchProfileBtn.addEventListener("click", async () => {
+          try {
+            const res = await http("/api/me");
+            state.user = res.user;
+            renderProfile(res.user);
+            appendLog("Profile fetched");
+            updateSessionInfo();
+          } catch (err) {
+            appendLog(`Profile fetch failed: ${err.message}`, "error");
+            alert(err.message);
+          }
+        });
+
+        els.healthCheckBtn.addEventListener("click", async () => {
+          try {
+            const res = await http("/health");
+            alert(JSON.stringify(res));
+          } catch (err) {
+            alert(err.message);
+          }
+        });
+
+        els.connectSocketBtn.addEventListener("click", () => {
+          try {
+            connectSocket();
+          } catch (err) {
+            appendLog(err.message, "error");
+          }
+        });
+
+        els.disconnectSocketBtn.addEventListener("click", () => {
+          disconnectSocket();
+        });
+
+        els.clearLogBtn.addEventListener("click", () => {
+          els.logOutput.textContent = "";
+        });
+
+        els.refreshChatsBtn.addEventListener("click", () => {
+          if (state.socket) {
+            state.socket.emit("getMyChats");
+            appendLog("Requested latest chats");
+          }
+        });
+
+        els.refreshSettingsBtn.addEventListener("click", () => {
+          if (state.socket && state.currentChatUserId) {
+            state.socket.emit("getChatSettings", { partnerId: state.currentChatUserId });
+            appendLog("Requested chat settings");
+          }
+        });
+
+        els.applyChatTimerBtn.addEventListener("click", () => {
+          try {
+            ensureSocket();
+          } catch (err) {
+            appendLog(err.message, "error");
+            return;
+          }
+          const partnerId = els.chatUserIdInput.value.trim();
+          if (!partnerId) {
+            alert("Enter partner userId");
+            return;
+          }
+          const timerSeconds = Number(els.chatTimerInput.value || 0);
+          state.socket.emit("updateChatSettings", { partnerId, timerSeconds }, (res) => {
+            if (res?.success) {
+              state.currentChatSettings = res.data;
+              renderChatSettings();
+              appendLog("Chat timer updated");
+            } else {
+              appendLog(`Chat timer error: ${res?.message}`, "error");
+              alert(res?.message || "Failed to update timer");
+            }
+          });
+        });
+
+        els.messageForm.addEventListener("submit", (evt) => {
+          evt.preventDefault();
+          const text = els.messageInput.value.trim();
+          if (!text) return;
+          try {
+            ensureSocket();
+          } catch (err) {
+            appendLog(err.message, "error");
+            alert(err.message);
+            return;
+          }
+          const partnerId = state.currentChatUserId || els.chatUserIdInput.value.trim();
+          if (!partnerId) {
+            alert("Select a chat first");
+            return;
+          }
+          state.socket.emit("sendMessage", {
+            receiverId: partnerId,
+            text
+          });
+          els.messageInput.value = "";
+        });
+
+        els.chatUserIdInput.addEventListener("change", (evt) => {
+          if (evt.target.value.trim()) {
+            selectChat(evt.target.value.trim());
+          }
+        });
+
+        const startCall = async (callType) => {
+          try {
+            ensureSocket();
+          } catch (err) {
+            appendLog(err.message, "error");
+            alert(err.message);
+            return;
+          }
+          const targetId = els.callUserIdInput.value.trim() || state.currentChatUserId;
+          if (!targetId) {
+            alert("Enter call userId");
+            return;
+          }
+          state.call.remoteUserId = targetId;
+          state.call.type = callType;
+          state.call.isCaller = true;
+          await requestLocalStream(callType);
+          state.socket.emit("initiateCall", { receiverId: targetId, callType });
+          els.endCallBtn.disabled = false;
+          setCallStatus(`Calling ${targetId} (${callType})`);
+        };
+
+        els.startAudioCallBtn.addEventListener("click", () => startCall("audio"));
+        els.startVideoCallBtn.addEventListener("click", () => startCall("video"));
+
+        els.acceptCallBtn.addEventListener("click", () => acceptIncomingCall());
+        els.rejectCallBtn.addEventListener("click", () => rejectIncomingCall());
+        els.incomingAcceptBtn.addEventListener("click", () => acceptIncomingCall());
+        els.incomingRejectBtn.addEventListener("click", () => rejectIncomingCall());
+        els.endCallBtn.addEventListener("click", () => endCall());
+
+        els.loadCallHistoryBtn.addEventListener("click", async () => {
+          try {
+            const res = await http("/api/calls/history");
+            els.callHistoryBox.textContent = JSON.stringify(res, null, 2);
+          } catch (err) {
+            alert(err.message);
+          }
+        });
+
+        els.loadMissedCallsBtn.addEventListener("click", async () => {
+          try {
+            const res = await http("/api/calls/missed");
+            els.callHistoryBox.textContent = JSON.stringify(res, null, 2);
+          } catch (err) {
+            alert(err.message);
+          }
+        });
+
+        els.clearCallHistoryBtn.addEventListener("click", () => {
+          els.callHistoryBox.textContent = "No history loaded.";
+        });
+      };
+
+      const bootstrap = () => {
+        updateTokenUI();
+        initEventHandlers();
+        if (state.accessToken) {
+          appendLog("Access token restored from storage");
+        }
+        els.socketUrlInput.value = window.location.origin;
+      };
+
+      bootstrap();
+    })();
+  </script>
+</body>
+</html>

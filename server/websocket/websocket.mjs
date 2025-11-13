@@ -391,10 +391,14 @@ export const setupSocket = (server) => {
           io.to(sid).emit("callAccepted", {
             callId: String(callRecord._id),
             receiverId: String(userId),
+            callType: callRecord.callType,
           });
         }
 
-        socket.emit("callAcceptedConfirm", { callId: String(callRecord._id) });
+        socket.emit("callAcceptedConfirm", {
+          callId: String(callRecord._id),
+          callType: callRecord.callType,
+        });
       } catch (err) {
         console.error("acceptCall error:", err.message);
         socket.emit("callError", { error: err.message });
