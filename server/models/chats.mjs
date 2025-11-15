@@ -21,7 +21,7 @@ const chatSchema = new mongoose.Schema(
       url: { type: String },          // S3 / local file path
       type: {                         // image, video, audio, doc, etc.
         type: String,
-        enum: ['image', 'video', 'audio', 'document'],
+        enum: ['image/jpeg', 'video/mp4', 'audio/m4a', 'document'],
       },
       name: { type: String },         // original file name
       size: { type: Number },         // in bytes
